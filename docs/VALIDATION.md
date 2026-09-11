@@ -52,3 +52,14 @@ Backup remoto `runtime/backups/vps_rede_globo_validated.dump` (6.099.439 bytes) 
 As oito consultas de `sql/006_analise_projeto.sql` foram executadas em transação somente leitura na VPS: localização, trajetória, horas por status com qualidade, resumo, diagnósticos, estatísticas de visitas encerradas, fila atual e corte. Validado projeto com múltiplas visitas à mesma etapa. Nenhuma nova tabela ou regra de duração foi criada para essas consultas.
 
 Os exemplos SQL executáveis do guia `RELACIONAMENTOS_E_KPIS.md` também foram validados. O join dos intervalos com dimensões pelas SKs preservou a contagem de visitas e a soma de minutos. O exemplo com a futura base de orçamentos é ilustrativo e não foi executado.
+
+
+## Contratos, tratamento e obrigatoriedade — 11/09/2026
+
+Contrato 1.0.0: validadores portáteis de tipos, PK/escopo/SK, obrigatoriedade, domínios e durações; limpeza textual em cópias; NOT NULL PostgreSQL para campos requeridos. Foram aprovados 59 testes incluindo integração PostgreSQL local, dados inválidos, preservação da Bronze e migração de base antiga incompatível.
+
+Backup remoto realizado antes da migração: `runtime/backups/before_contracts_20260911T155742Z.dump`. `init-db`, `replay`, `validate` e `quality-profile` executados com sucesso por Docker desta máquina contra a VPS. Perfil das 16 tabelas: zero falhas críticas de contrato.
+
+Reconciliação por hash antes/depois: Bronze de eventos, snapshots, schema e watermark preservados integralmente; IDs de intervalos, itens e status, início/fim, durações e qualidade histórica preservados. Registro local: `runtime/contract_migration_validation.json`. Reprocessamento no corte 11/09/2026 15:17:14 UTC, mantendo 5.329 intervalos e 4.563 itens na dimensão. Não houve nova extração Monday nesta mudança.
+
+NULLs legítimos continuam no modelo, inclusive Cliente ausente, Entrada não comprovada e eventos de saída ainda inexistentes. Contrato não é prova de cobertura histórica completa. BigQuery continua com DDL/adapter testados por contrato, sem homologação real. Executor/cron na VPS continuam pendentes.

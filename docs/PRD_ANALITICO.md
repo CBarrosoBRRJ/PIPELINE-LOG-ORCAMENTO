@@ -133,3 +133,7 @@ Pronto e validado: banco remoto preenchido, histórico disponível, pipeline exe
 Não é necessário criar outro banco ou outra coluna no Monday para medir os tempos atuais. A equipe deve manter as mudanças de status na coluna configurada. Criar status novo nessa coluna é suportado; marcar um novo status como encerramento requer atualizar `FINAL_STATUS_LABELS`.
 
 Roteiro de instalação e publicação: [DEPLOY_PASSO_A_PASSO.md](DEPLOY_PASSO_A_PASSO.md). GitHub guarda e versiona código; PostgreSQL guarda os dados; Docker executa o programa; cron determina quando rodar. Só subir o código no GitHub não agenda o pipeline.
+
+## Tratamento e contratos de qualidade
+
+A passagem para análise aplica limpeza textual em cópias, valida campos obrigatórios e preserva nulos legítimos. Regras de publicação, arquitetura para novas áreas e responsabilidades documentais estão em [ARQUITETURA_E_GOVERNANCA.md](ARQUITETURA_E_GOVERNANCA.md). A obrigatoriedade de cada campo está em [CONTRATOS_DE_DADOS.md](CONTRATOS_DE_DADOS.md).

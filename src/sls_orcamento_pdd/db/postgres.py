@@ -5,6 +5,7 @@ from sqlalchemy import UniqueConstraint, bindparam, create_engine, or_, select, 
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.schema import AddConstraint, CreateSchema
 
+from ..models.contracts import prepare_payload, required_columns
 from ..models.keys import DIMENSION_IDENTITIES, SURROGATE_COLUMNS, with_surrogates
 from ..models.schemas import DEFINITIONS, REPLACE_TABLES, define_tables
 
@@ -122,6 +123,27 @@ class PostgresStore:
                     "ADD COLUMN IF NOT EXISTS sla_start_quality TEXT"
                 )
             )
+            # Promote the required-field contract to PostgreSQL too. No filling
+            # unknowns: an incompatible existing row aborts this transaction.
+            nullable_columns = set(
+                conn.execute(
+                    text(
+                        "SELECT table_name,column_name FROM information_schema.columns "
+                        "WHERE table_schema=:schema AND is_nullable='YES'"
+                    ),
+                    {"schema": self.settings.pg_schema},
+                ).all()
+            )
+            for name in self.tables:
+                changes = [
+                    f"ALTER COLUMN {column} SET NOT NULL"
+                    for column in sorted(required_columns(name))
+                    if (name, column) in nullable_columns
+                ]
+                if changes:
+                    conn.execute(
+                        text(f"ALTER TABLE {self.settings.pg_schema}.{name} " + ", ".join(changes))
+                    )
             existing = set(
                 conn.execute(
                     text("""SELECT c.conname FROM pg_constraint c
@@ -217,9 +239,9 @@ class PostgresStore:
             return [dict(r) for r in conn.execute(statement).mappings()]
 
     def commit(self, payload, board_id):
+        payload = prepare_payload(payload, board_id)
         with self.engine.begin() as conn:
             for name, rows in payload.items():
-                rows = [with_surrogates(name, row) for row in rows]
                 table = self.tables[name]
                 if name in REPLACE_TABLES:
                     conn.execute(table.delete().where(table.c.board_id == board_id))

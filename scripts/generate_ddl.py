@@ -23,7 +23,10 @@ def main():
         parts.append(str(CreateTable(table, if_not_exists=True).compile(dialect=dialect)) + ";")
         for index in table.indexes:
             parts.append(str(CreateIndex(index, if_not_exists=True).compile(dialect=dialect)) + ";")
-    (root / "001_schema.sql").write_text("\n\n".join(parts), encoding="utf-8")
+    ddl = "\n\n".join(parts)
+    (root / "001_schema.sql").write_text(
+        "\n".join(line.rstrip() for line in ddl.splitlines()) + "\n", encoding="utf-8"
+    )
     (root / "002_gold_views.sql").write_text(
         ";\n\n".join(postgres_views("sladb", "America/Sao_Paulo")) + ";\n", encoding="utf-8"
     )

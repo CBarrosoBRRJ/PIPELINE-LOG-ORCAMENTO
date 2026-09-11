@@ -11,6 +11,8 @@ from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+from ..models.contracts import validate_table
+from .clean import clean_inputs
 from .extract import ALIASES, norm, status_id
 
 
@@ -20,6 +22,11 @@ def key(*parts):
 
 def transform(events, snapshots, statuses, settings, at, active_ids):
     board_id = settings.monday_board_id
+    validate_table("bronze_monday_activity_log_raw", events, board_id)
+    # As-of input may contain multiple observations of the same local date.
+    validate_table("bronze_monday_item_snapshot_raw", snapshots, board_id, unique=False)
+    events, snapshots, statuses = clean_inputs(events, snapshots, statuses)
+    validate_table("dim_status", statuses, board_id)
     zone = ZoneInfo(settings.preferred_timezone)
     result = {
         name: []
@@ -297,6 +304,8 @@ def transform(events, snapshots, statuses, settings, at, active_ids):
         {r["issue_id"]: r for r in result["data_quality_issue"]}.values()
     )
     validate(result, len(active_ids))
+    for name, rows in result.items():
+        validate_table(name, rows, board_id)
     return result
 
 

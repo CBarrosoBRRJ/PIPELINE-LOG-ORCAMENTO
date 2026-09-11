@@ -8,7 +8,7 @@ from datetime import timedelta
 import pytest
 from conftest import at, raw_event, raw_item
 from sqlalchemy import text
-from sqlalchemy.exc import DataError, IntegrityError
+from sqlalchemy.exc import IntegrityError
 
 from sls_orcamento_pdd.config import Settings
 from sls_orcamento_pdd.db.postgres import PostgresStore
@@ -84,10 +84,10 @@ def test_transaction_rollback_and_advisory_lock(pg_settings, board):
     store = PostgresStore(pg_settings)
     run(pg_settings, "backfill", client=FakeMonday(board), store=store, at=at())
     before = copy.deepcopy(store.read("fct_item_status_interval"))
-    with pytest.raises(DataError):
-        store.commit(
-            {"fct_item_status_interval": [], "dim_item": [{"item_id": "invalid-bigint"}]}, 42
-        )
+    invalid_item = {**store.read("dim_item")[0], "current_status_id": "nonexistent"}
+    invalid_item.pop("current_status_sk")
+    with pytest.raises(IntegrityError):
+        store.commit({"fct_item_status_interval": [], "dim_item": [invalid_item]}, 42)
     assert store.read("fct_item_status_interval") == before
     with store.lock(), pytest.raises(RuntimeError, match="ativa"), store.lock():
         pass
@@ -114,8 +114,10 @@ def test_foreign_keys_reject_orphan_and_original_item_id_is_preserved(pg_setting
         next(c for c in catalog if c["column_id"] == "brand_x")["analytical_attribute"] == "marca"
     )
     original = store.read("dim_item")[0]
+    orphan = {**original, "current_status_id": "nonexistent-status"}
+    orphan.pop("current_status_sk")
     with pytest.raises(IntegrityError):
-        store.commit({"dim_item": [{**original, "current_status_id": "nonexistent-status"}]}, 42)
+        store.commit({"dim_item": [orphan]}, 42)
     assert store.read("dim_item")[0]["current_status_id"] == original["current_status_id"]
     with pytest.raises(IntegrityError), store.engine.begin() as conn:
         # A manual mismatch between natural ID and SK must be rejected too.
@@ -124,3 +126,29 @@ def test_foreign_keys_reject_orphan_and_original_item_id_is_preserved(pg_setting
                 f"UPDATE {pg_settings.pg_schema}.fct_item_status_interval SET item_sk='wrong-entity'"
             )
         )
+
+
+def test_contract_required_fields_enforced_in_database(pg_settings, board):
+    store = PostgresStore(pg_settings)
+    run(pg_settings, "backfill", client=FakeMonday(board), store=store, at=at())
+    with pytest.raises(IntegrityError), store.engine.begin() as conn:
+        conn.execute(text(f"UPDATE {pg_settings.pg_schema}.dim_item SET item_name=NULL"))
+    # Unknown Entrada is legitimately nullable and must never be fabricated.
+    assert store.read("fct_item_sla_summary")[0]["sla_start_utc"] is None
+    store.initialize()
+    store.initialize()
+
+
+def test_dirty_legacy_data_blocks_required_field_migration(pg_settings, board):
+    store = PostgresStore(pg_settings)
+    run(pg_settings, "backfill", client=FakeMonday(board), store=store, at=at())
+    with store.engine.begin() as conn:
+        conn.execute(
+            text(
+                f"ALTER TABLE {pg_settings.pg_schema}.dim_item ALTER COLUMN item_name DROP NOT NULL"
+            )
+        )
+        conn.execute(text(f"UPDATE {pg_settings.pg_schema}.dim_item SET item_name=NULL"))
+    with pytest.raises(IntegrityError):
+        store.initialize()
+    assert store.read("dim_item")[0]["item_name"] is None

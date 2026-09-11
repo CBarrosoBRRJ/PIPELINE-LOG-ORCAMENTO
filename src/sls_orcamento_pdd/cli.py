@@ -21,6 +21,7 @@ def main():
             "health",
             "export-bq",
             "check-db",
+            "quality-profile",
         ],
     )
     args = parser.parse_args()
@@ -45,6 +46,23 @@ def main():
                     indent=2,
                 )
             )
+        elif args.command == "quality-profile":
+            from .db import get_store
+            from .services.quality import quality_profile
+
+            report = quality_profile(get_store(settings), settings.monday_board_id)
+            settings.runtime_dir.mkdir(parents=True, exist_ok=True)
+            path = settings.runtime_dir / f"quality_{settings.monday_board_id}.json"
+            path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            emit(
+                "quality_profile",
+                tables=len(report["tables"]),
+                critical_failures=report["critical_failures"],
+            )
+            if report["critical_failures"]:
+                raise ValueError(
+                    "Contrato inválido em uma ou mais tabelas; confira o relatório de qualidade em runtime"
+                )
         elif args.command == "check-db":
             from .db.postgres import PostgresStore
 

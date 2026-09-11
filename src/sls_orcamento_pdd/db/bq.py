@@ -10,7 +10,8 @@ import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
-from ..models.keys import DIMENSION_IDENTITIES, with_surrogates
+from ..models.contracts import prepare_payload, required_columns
+from ..models.keys import DIMENSION_IDENTITIES
 from ..models.schemas import (
     DEFINITIONS,
     REPLACE_TABLES,
@@ -44,7 +45,9 @@ PARTITIONS = {
 
 def table_ddl(prefix, name):
     fields = [
-        f"`{f.split(':')[0]}` {BQ_TYPES[f.split(':')[1]]}" for f in DEFINITIONS[name][1].split()
+        f"`{f.split(':')[0]}` {BQ_TYPES[f.split(':')[1]]}"
+        + (" NOT NULL" if f.split(":")[0] in required_columns(name) else "")
+        for f in DEFINITIONS[name][1].split()
     ]
     keys = DEFINITIONS[name][0].split(",")
     fields.append("PRIMARY KEY (" + ", ".join(f"`{k}`" for k in keys) + ") NOT ENFORCED")
@@ -217,11 +220,11 @@ class BigQueryStore:
         return rows
 
     def commit(self, payload, board_id):
+        payload = prepare_payload(payload, board_id)
         script = ["BEGIN TRANSACTION;"]
         stages = []
         try:
             for name, rows in payload.items():
-                rows = [with_surrogates(name, row) for row in rows]
                 if name not in DEFINITIONS:
                     raise ValueError("Tabela não reconhecida")
                 target = f"`{self.prefix}.{name}`"

@@ -1,6 +1,6 @@
 # PRD — SLA de status de projetos no Monday
 
-Versão: 1.1. Atualizado em 11/09/2026. Projeto: `sls_orcamento_pdd`.
+Versão: 1.2. Atualizado em 11/09/2026. Projeto: `sls_orcamento_pdd`.
 
 Este documento reúne os requisitos originais e as decisões confirmadas durante a implementação. Deve ser lido antes de continuar o projeto, implantar a VPS ou migrar para BigQuery.
 
@@ -20,6 +20,14 @@ O objetivo prioritário confirmado é selecionar o projeto X, conhecer sua traje
 - [Implantação passo a passo](docs/DEPLOY_PASSO_A_PASSO.md): papel do GitHub, transferência para VPS, execução por Docker, rede interna e cron.
 
 O usuário confirmou que não existem metas por etapa: a fase atual é de estudo dos tempos reais para estabelecer padrões. Medir permanência já está implementado. Metas máximas por etapa e a classificação dentro/fora do SLA ainda dependem de definição de negócio e implementação. Não confundir a permanência medida com uma meta já cadastrada. D+1 fechado permanece proposto; o modo atual é corte no início da execução.
+
+## Qualidade e padrão da equipe
+
+O usuário confirmou que organização, tratamento coerente entre camadas e documentação completa são requisitos permanentes para este e os próximos pipelines. Padrão: [ARQUITETURA_E_GOVERNANCA.md](docs/ARQUITETURA_E_GOVERNANCA.md). Contrato de todos os campos: [CONTRATOS_DE_DADOS.md](docs/CONTRATOS_DE_DADOS.md), gerado do metadata e contrato executável 1.0.0.
+
+Implementação: validação de entrada antes da transformação; limpeza textual em cópias, preservando Bronze; validação de tipos, obrigatoriedade, identidade, escopo e duração antes de publicar; NOT NULL em campos obrigatórios PostgreSQL; comando `quality-profile`. Nulos legítimos não são preenchidos artificialmente. Falhas críticas bloqueiam o lote e não avançam o watermark. Não há landing/quarentena durável independente implementada.
+
+Extensão para N projetos deve preservar IDs/SKs e declarar origem, conta, grão, domínio, responsáveis e consumidores. O MVP ainda é um quadro por configuração, com rebuild em memória; não apresentar esse padrão documental como execução distribuída pronta. Metas por etapa, D+1 fechado, alertas externos e executor/cron na VPS continuam pendentes.
 
 ## Regras de negócio acordadas
 

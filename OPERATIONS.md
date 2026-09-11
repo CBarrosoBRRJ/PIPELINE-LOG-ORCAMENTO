@@ -103,3 +103,10 @@ Teste a restauração num banco separado e mantenha uma cópia fora da VPS. Apó
 No modo local com banco próprio, o banco está publicado apenas em loopback. Na VPS atual existe porta externa; restrinja o acesso ao configurar o servidor. Use túnel SSH/VPN ou gateway perto da VPS para o Power BI. Para teste via túnel: `ssh -L 55432:127.0.0.1:55432 usuario@VPS`. O comando precisa do host/usuário reais; ajuste as portas ao endpoint real do banco.
 
 Crie um papel dedicado de leitura ao configurar BI; conceda `USAGE ON SCHEMA rede_globo`, `SELECT ON ALL TABLES IN SCHEMA rede_globo` e privilégios padrão de SELECT para objetos futuros. Não use a conta administrativa do ETL no compartilhamento do relatório. O pipeline trata pessoas como atribuições do projeto, não como prova de quem causou a demora.
+
+
+## Evolução de contratos e nulos
+
+Antes de uma atualização de obrigatoriedade, rode `quality-profile` com o código novo e faça backup. Campos requeridos passam a NOT NULL em `init-db`; uma linha legada incompatível aborta a migração sem inventar um preenchimento. O contrato portátil também verifica tipo, identidade, domínio e duração antes de publicar. Depois, `replay` aplica a limpeza a derivados no mesmo corte; `validate` confere durações. A Bronze continua preservada.
+
+Regenerar artefatos ao alterar contrato/metadata: `python scripts/generate_ddl.py` e `python scripts/generate_contract_docs.py`. Leia [ARQUITETURA_E_GOVERNANCA.md](docs/ARQUITETURA_E_GOVERNANCA.md). O perfil materializa uma tabela por vez em memória no MVP; adequar para validação por lote/agregação SQL em volumes maiores.

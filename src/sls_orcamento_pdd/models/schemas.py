@@ -177,6 +177,8 @@ REPLACE_TABLES = {
 
 
 def define_tables(schema="sladb"):
+    from .contracts import required_columns
+
     metadata = MetaData(schema=schema)
     tables = {}
     for name, (keys, fields) in DEFINITIONS.items():
@@ -187,7 +189,7 @@ def define_tables(schema="sladb"):
                 TYPES[field.split(":")[1]],
                 primary_key=field.split(":")[0] in primary,
                 nullable=(
-                    field.split(":")[0] not in primary
+                    field.split(":")[0] not in required_columns(name)
                     and field.split(":")[0] != DIMENSION_IDENTITIES.get(name, (None, None))[1]
                 ),
             )

@@ -1,0 +1,297 @@
+# Contrato de campos — referência gerada
+
+Versão 1.0.0. Fonte: `models/schemas.py` e `models/contracts.py`.
+Regenerar com `python scripts/generate_contract_docs.py`.
+
+Significado de negócio das tabelas: [PRD_ANALITICO.md](PRD_ANALITICO.md).
+Política de nulos e tratamento: [ARQUITETURA_E_GOVERNANCA.md](ARQUITETURA_E_GOVERNANCA.md).
+
+`id`: inteiro positivo de 64 bits; `text`: texto; `time`: timestamp com fuso;
+`date`: data; `num`: número finito não negativo; `bool`: booleano; `json`: objeto/lista.
+Campos opcionais aceitam NULL. Campos obrigatórios não aceitam NULL e textos obrigatórios não aceitam vazio.
+SKs são calculadas antes da gravação; devem corresponder ao ID original. A obrigatoriedade de SK dimensional é imposta pelo banco.
+
+## `dim_board`
+
+Chave primária: `board_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `board_id` | id | Sim | — |
+| `board_name` | text | Sim | — |
+| `created_at` | time | Não | — |
+| `updated_at` | time | Sim | — |
+| `board_sk` | text | Sim | — |
+
+## `meta_column_mapping`
+
+Chave primária: `board_id,column_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `board_id` | id | Sim | dim_board.board_id |
+| `column_id` | text | Sim | — |
+| `column_title` | text | Sim | — |
+| `column_type` | text | Sim | — |
+| `analytical_attribute` | text | Não | — |
+| `is_extracted` | bool | Sim | — |
+| `is_modeled` | bool | Sim | — |
+| `is_present` | bool | Sim | — |
+| `discovered_at` | time | Sim | — |
+| `board_sk` | text | Não | — |
+
+## `bronze_monday_activity_log_raw`
+
+Chave primária: `event_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `event_id` | text | Sim | — |
+| `board_id` | id | Sim | dim_board.board_id |
+| `item_id` | id | Sim | dim_item.item_id |
+| `event` | text | Sim | — |
+| `event_at_utc` | time | Sim | — |
+| `created_at_raw` | text | Não | — |
+| `status_from_text` | text | Não | — |
+| `status_to_text` | text | Não | — |
+| `status_from_index` | int | Não | — |
+| `status_to_index` | int | Não | — |
+| `column_id` | text | Sim | — |
+| `column_title` | text | Não | — |
+| `group_id` | text | Não | — |
+| `raw_data` | json | Sim | — |
+| `timestamp_source` | text | Sim | — |
+| `ingested_at` | time | Sim | — |
+
+## `bronze_monday_item_snapshot_raw`
+
+Chave primária: `board_id,item_id,snapshot_date`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `item_id` | id | Sim | dim_item.item_id |
+| `board_id` | id | Sim | dim_board.board_id |
+| `item_name` | text | Não | — |
+| `group_id` | text | Não | — |
+| `created_at` | time | Não | — |
+| `updated_at` | time | Não | — |
+| `marca` | text | Não | — |
+| `cliente` | text | Não | — |
+| `talento` | text | Não | — |
+| `intervenciencia` | text | Não | — |
+| `pessoas_json` | json | Não | — |
+| `snapshot_at` | time | Sim | — |
+| `snapshot_date` | date | Sim | — |
+| `current_status_id` | text | Sim | dim_status.status_id |
+| `status_text` | text | Não | — |
+| `status_index` | int | Não | — |
+| `is_active` | bool | Sim | — |
+| `raw_data` | json | Sim | — |
+
+## `bronze_monday_board_schema_raw`
+
+Chave primária: `board_id,snapshot_date`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `board_id` | id | Sim | dim_board.board_id |
+| `snapshot_date` | date | Sim | — |
+| `snapshot_at` | time | Sim | — |
+| `raw_data` | json | Sim | — |
+| `mapping` | json | Sim | — |
+
+## `silver_monday_status_event_stg`
+
+Chave primária: `event_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `event_id` | text | Sim | bronze_monday_activity_log_raw.event_id |
+| `board_id` | id | Sim | dim_board.board_id |
+| `item_id` | id | Sim | dim_item.item_id |
+| `status_id` | text | Sim | dim_status.status_id |
+| `status_from` | text | Não | — |
+| `status_to` | text | Não | — |
+| `event_at_utc` | time | Sim | — |
+| `timestamp_source` | text | Sim | — |
+| `board_sk` | text | Não | — |
+| `item_sk` | text | Não | — |
+| `status_sk` | text | Não | — |
+
+## `dim_status`
+
+Chave primária: `status_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `status_id` | text | Sim | — |
+| `board_id` | id | Sim | dim_board.board_id |
+| `status_label` | text | Sim | — |
+| `status_label_norm` | text | Sim | — |
+| `status_order` | int | Não | — |
+| `status_column_id` | text | Sim | — |
+| `status_color` | text | Não | — |
+| `is_terminal` | bool | Sim | — |
+| `status_sk` | text | Sim | — |
+| `board_sk` | text | Não | — |
+
+## `dim_person`
+
+Chave primária: `person_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `person_id` | text | Sim | — |
+| `person_name` | text | Sim | — |
+| `email` | text | Não | — |
+| `person_sk` | text | Sim | — |
+
+## `dim_item`
+
+Chave primária: `item_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `item_id` | id | Sim | — |
+| `board_id` | id | Sim | dim_board.board_id |
+| `item_name` | text | Sim | — |
+| `created_at` | time | Não | — |
+| `updated_at` | time | Não | — |
+| `current_status_id` | text | Sim | dim_status.status_id |
+| `is_active` | bool | Sim | — |
+| `last_seen_at` | time | Não | — |
+| `item_sk` | text | Sim | — |
+| `board_sk` | text | Não | — |
+| `current_status_sk` | text | Não | — |
+
+## `bridge_item_person`
+
+Chave primária: `item_id,person_id,source_column_id,snapshot_date`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `item_id` | id | Sim | dim_item.item_id |
+| `board_id` | id | Sim | dim_board.board_id |
+| `person_id` | text | Sim | dim_person.person_id |
+| `role` | text | Sim | — |
+| `source_column_id` | text | Sim | — |
+| `snapshot_date` | date | Sim | — |
+| `board_sk` | text | Não | — |
+| `item_sk` | text | Não | — |
+| `person_sk` | text | Não | — |
+
+## `fct_item_status_interval`
+
+Chave primária: `interval_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `interval_id` | text | Sim | — |
+| `board_id` | id | Sim | dim_board.board_id |
+| `item_id` | id | Sim | dim_item.item_id |
+| `status_id` | text | Sim | dim_status.status_id |
+| `status_from` | text | Não | — |
+| `status_to` | text | Sim | — |
+| `status_start_utc` | time | Sim | — |
+| `status_end_utc` | time | Sim | — |
+| `duration_minutes` | num | Sim | — |
+| `duration_hours` | num | Sim | — |
+| `is_open_interval` | bool | Sim | — |
+| `event_start_id` | text | Não | bronze_monday_activity_log_raw.event_id |
+| `event_end_id` | text | Não | bronze_monday_activity_log_raw.event_id |
+| `item_name` | text | Não | — |
+| `marca` | text | Não | — |
+| `cliente` | text | Não | — |
+| `talento` | text | Não | — |
+| `intervenciencia` | text | Não | — |
+| `pessoas_json` | json | Não | — |
+| `snapshot_date` | date | Não | — |
+| `attribute_source` | text | Sim | — |
+| `history_quality` | text | Sim | — |
+| `updated_at` | time | Sim | — |
+| `board_sk` | text | Não | — |
+| `item_sk` | text | Não | — |
+| `status_sk` | text | Não | — |
+
+## `fct_item_status_daily`
+
+Chave primária: `board_id,dt,item_id,status_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `board_id` | id | Sim | dim_board.board_id |
+| `dt` | date | Sim | — |
+| `item_id` | id | Sim | dim_item.item_id |
+| `status_id` | text | Sim | dim_status.status_id |
+| `minutes_in_status` | num | Sim | — |
+| `marca` | text | Não | — |
+| `cliente` | text | Não | — |
+| `talento` | text | Não | — |
+| `intervenciencia` | text | Não | — |
+| `snapshot_date` | date | Não | — |
+| `board_sk` | text | Não | — |
+| `item_sk` | text | Não | — |
+| `status_sk` | text | Não | — |
+
+## `fct_item_sla_summary`
+
+Chave primária: `item_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `item_id` | id | Sim | dim_item.item_id |
+| `board_id` | id | Sim | dim_board.board_id |
+| `status_atual` | text | Sim | — |
+| `created_at` | time | Não | — |
+| `first_status_at` | time | Não | — |
+| `finalizado_em` | time | Não | — |
+| `lead_time_total_min` | num | Não | — |
+| `sla_status_atual_min` | num | Não | — |
+| `open_interval` | bool | Sim | — |
+| `is_active` | bool | Sim | — |
+| `history_quality` | text | Sim | — |
+| `sla_start_utc` | time | Não | — |
+| `sla_start_quality` | text | Sim | — |
+| `atualizado_em` | time | Sim | — |
+| `board_sk` | text | Não | — |
+| `item_sk` | text | Não | — |
+
+## `etl_watermark`
+
+Chave primária: `pipeline_name`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `pipeline_name` | text | Sim | — |
+| `board_id` | id | Sim | dim_board.board_id |
+| `last_run_utc` | time | Sim | — |
+| `last_log_event_id` | text | Não | — |
+| `last_item_page_cursor` | text | Não | — |
+| `updated_at` | time | Sim | — |
+
+## `etl_run`
+
+Chave primária: `run_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `run_id` | text | Sim | — |
+| `board_id` | id | Sim | dim_board.board_id |
+| `mode` | text | Sim | — |
+| `start_at` | time | Sim | — |
+| `end_at` | time | Sim | — |
+| `status` | text | Sim | — |
+| `metrics` | json | Sim | — |
+
+## `data_quality_issue`
+
+Chave primária: `issue_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `issue_id` | text | Sim | — |
+| `board_id` | id | Sim | dim_board.board_id |
+| `item_id` | id | Sim | dim_item.item_id |
+| `code` | text | Sim | — |
+| `detail` | text | Sim | — |
+| `detected_at` | time | Sim | — |

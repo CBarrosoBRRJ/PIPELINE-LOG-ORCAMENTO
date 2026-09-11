@@ -90,6 +90,12 @@ Itens presentes somente nos logs são preservados, com atributos desconhecidos e
 
 No Power BI, conecte em **PostgreSQL**, banco `dados_globo`, schema `rede_globo`, por túnel/VPN ou conexão TLS configurada para a VPS e com usuário dedicado de leitura. O endereço do servidor depende desse acesso; o hostname Docker interno não resolve nesta máquina. Relacione `dim_item[item_id]` e `dim_status[status_id]` às tabelas fato. Para pessoas, use a bridge com `snapshot_date`; não some intervalos após um join de múltiplas pessoas sem controlar duplicação. Médias/percentis incluem intervalos abertos e inferidos nas views gerais; aplique filtros de qualidade nas análises que exigem apenas permanências comprovadas.
 
+## Qualidade e contratos
+
+`quality-profile` inspeciona as 16 tabelas sem alterar dados e gera `runtime/quality_<board_id>.json`, com contagens de nulos/vazios e resultado dos contratos. A passagem para análise normaliza textos em cópias, preservando JSON bruto e nulos legítimos. O lote é bloqueado para identidades, tipos e durações inválidas. Campos obrigatórios também recebem NOT NULL no PostgreSQL.
+
+Leia [o padrão de arquitetura e governança](docs/ARQUITETURA_E_GOVERNANCA.md) e [o contrato de campos](docs/CONTRATOS_DE_DADOS.md). Antes de migrar uma base existente: backup, `quality-profile`, `init-db`, `replay`, `validate`. Uma linha incompatível deve ser investigada; não será preenchida automaticamente pela migração.
+
 ## Configuração e operação
 
 Todas as opções estão em [.env.example](.env.example). Chaves legadas `TOKEN_MONDAY`, `BOARDS` e `COLUNA` são aceitas; chaves `MONDAY_*` têm precedência. Títulos de status na chave legada são resolvidos para o ID da coluna. `BUSINESS_COLUMNS_OVERRIDE` resolve títulos ambíguos. `STATUS_COLUMN_LABELS_OVERRIDE` mapeia índice → rótulo.
