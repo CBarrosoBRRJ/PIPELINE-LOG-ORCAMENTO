@@ -10,17 +10,18 @@ from datetime import UTC, date, datetime
 from ..models.schemas import DEFINITIONS
 
 
+def canonical_json(data):
+    return json.dumps(
+        data,
+        default=lambda v: v.isoformat(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode()
+
+
 def encode(data):
-    return gzip.compress(
-        json.dumps(
-            data,
-            default=lambda v: v.isoformat(),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode(),
-        mtime=0,
-    )
+    return gzip.compress(canonical_json(data), mtime=0)
 
 
 def decode(blob):
@@ -52,7 +53,8 @@ def fingerprint(data):
             for r in rows
         ]
         ordered[name] = sorted(normalized, key=lambda row: tuple(str(row[k]) for k in keys))
-    return hashlib.sha256(encode(ordered)).hexdigest()
+    # Compare content, never gzip envelopes (OS header/zlib can differ on Windows/Linux).
+    return hashlib.sha256(canonical_json(ordered)).hexdigest()
 
 
 class Checkpoint:
@@ -105,5 +107,8 @@ class Checkpoint:
 
     def backup(self, destination):
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(self.path)) as source, closing(sqlite3.connect(destination)) as target:
+        with (
+            closing(sqlite3.connect(self.path)) as source,
+            closing(sqlite3.connect(destination)) as target,
+        ):
             source.backup(target)

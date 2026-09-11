@@ -1,6 +1,6 @@
 # Monday → Python → tabela pronta para Power BI
 
-Aplicação **3.0.0**: o PostgreSQL publica **somente `orcamento.gold_projeto_status`**, uma linha por projeto/status/passagem, com ordem, datas, duração, Marca, Talento, responsável e retorno.
+Aplicação **3.0.1**: o PostgreSQL publica **somente `orcamento.gold_projeto_status`**, uma linha por projeto/status/passagem, com ordem, datas, duração, Marca, Talento, responsável e retorno.
 
 O tratamento acontece em Python. Histórico bruto, controle incremental e quarentena ficam no arquivo privado do executor em `/app/runtime`; não existem tabelas auxiliares PostgreSQL após a migração. Importar uma única tabela no Power BI, sem relacionamentos internos.
 

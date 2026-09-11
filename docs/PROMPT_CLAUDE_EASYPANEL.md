@@ -5,7 +5,7 @@ Use este roteiro sem criar bancos, tabelas, cron adicional, serviços pagos ou e
 ```text
 Confira a aplicação pipeline-orcamento no projeto banco_de_dados.
 Fonte: CBarrosoBRRJ/PIPELINE-LOG-ORCAMENTO, main, Dockerfile da raiz.
-Confirme o HEAD implantado e pacote sls-orcamento-pdd versão 3.0.0.
+Confirme o HEAD implantado e pacote sls-orcamento-pdd versão 3.0.1.
 Uma réplica, stop-first, CMD padrão loop. Não executar daily/backfill para validar deploy.
 Volume runtime persistente em /app/runtime, gravável por UID 10001. Não substituir/apagar o volume.
 Preserve as credenciais, banco dados_globo e schema orcamento.

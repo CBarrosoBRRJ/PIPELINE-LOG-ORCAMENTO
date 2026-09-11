@@ -1,6 +1,6 @@
 # PRD — Histórico de projetos por status
 
-Versão de aplicação **3.0.0**. Regras e contrato de campos **2.2.0** (a migração de armazenamento não altera tempos nem identidades).
+Versão de aplicação **3.0.1**. Regras e contrato de campos **2.2.0** (a migração de armazenamento não altera tempos nem identidades).
 
 ## Resultado aprovado
 

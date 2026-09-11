@@ -11,11 +11,17 @@
 
 Testes de integração usam somente PostgreSQL local e schemas isolados. Cobrem migração, rollback por dependência externa, preservação de registros, não recriação de auxiliares, unicidade, reserva diária entre processos, falha sem avanço do watermark, checkpoint ausente, recuperação após commit interrompido, revisão de catálogo e alteração externa da Gold.
 
-Suíte final: **103 testes passaram**; Ruff e `git diff --check` passaram. Conexões SQLite são fechadas explicitamente, inclusive nos caminhos de falha; o teste de perda de volume foi executado no Windows.
+Suíte final: **104 testes passaram**; Ruff e `git diff --check` passaram. Conexões SQLite são fechadas explicitamente, inclusive nos caminhos de falha; o teste de perda de volume foi executado no Windows.
 
 ## Aplicação 3.0 na VPS
 
-Pendente de registrar a execução remota após o push desta versão. O ensaio acima não é alegação de migração já concluída na VPS.
+Migração executada no container remoto em **11/09/2026 21:29:14 UTC (18:29 São Paulo)**, código `03e6119`, pacote 3.0.0. Resultado observado: `removed_tables=19`, `rows=3330`, `checkpoint_verified=true`. Gold preservada integralmente. `validate-gold` remoto passou às 21:29:58 UTC.
+
+Consulta independente ao banco inteiro pela conexão externa confirmou: somente `orcamento.gold_projeto_status` (BASE TABLE), 3.330 passagens, 2.822 projetos, **zero duplicatas**, **zero sequências inválidas**, 23 retornos. PK, UNIQUE e quatro CHECKs validados; não há FKs para objetos removidos.
+
+A versão **3.0.1** torna o fingerprint independente do cabeçalho gzip de Windows/Linux: calcula SHA-256 sobre JSON canônico descompactado. Comparação independente entre cópia restaurada Linux e VPS lida pelo Windows passou: `648685e885b08c38553f077ec5ba1254b173da180131054906e8e642bd5590d8`. O fingerprint anterior registrado acima era do envelope compactado em Linux; a alteração não modifica registros nem o formato de recuperação do checkpoint. Há teste específico de portabilidade.
+
+O dump pré-migração com restore testado está guardado localmente. O executor mantém o checkpoint ativo e cópia antes da migração no volume persistente. Nenhuma tabela técnica foi movida para outro schema PostgreSQL.
 
 ## Registro histórico da publicação 2.2 (anterior à remoção das tabelas)
 
