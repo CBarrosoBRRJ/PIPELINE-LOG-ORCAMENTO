@@ -1,56 +1,36 @@
-# PRD — Histórico de projetos por status
+# PRD — histórico por status pronto para consumo
 
-Versão de aplicação **3.0.1**. Regras e contrato de campos **2.2.0** (a migração de armazenamento não altera tempos nem identidades).
+Aplicação **3.1.0**, regras **2.2.1**, contrato físico **4**. O usuário aprovou a tabela principal e, depois, uma única exceção: a tabela de erros/dúvidas. Resultado: **somente `orcamento.gold_projeto_status` e `orcamento.pendencias_projeto` no PostgreSQL `dados_globo`**. Não recriar dimensões, Bronze, fatos auxiliares ou controles nesse banco.
 
-## Resultado aprovado
+Uma linha da principal representa uma passagem do projeto por um status. Os primeiros campos são Ordem, Projeto, Status, Entrada, Saída, Duração, Marca, Talento, Responsável Orçamento e Retorno. `item_id` original e chaves de integração são preservados. A numeração `ordem_etapa` segue a sequência temporal por projeto; consumir com `ORDER BY item_id, ordem_etapa`.
 
-O banco PostgreSQL `dados_globo` tem uma única tabela deste projeto: **`orcamento.gold_projeto_status`**. Uma linha representa uma passagem de um projeto por um status. As outras 19 tabelas são removidas pela migração explícita; não são transferidas para outro schema PostgreSQL nem recriadas na carga seguinte.
+## Regras essenciais
 
-| Apresentação | Coluna |
-|---|---|
-| Ordem | `ordem_etapa` |
-| Projeto | `projeto_nome` e `item_id` original Monday |
-| Status | `status_nome` |
-| Entrada / Saída | `entrada_status_local` / `saida_status_local` |
-| Duração | `duracao_horas` e `duracao_minutos` |
-| Marca / Talento | `marca_nome` / `talento_nome` |
-| Responsável Orçamento | `responsavel_orcamento` |
-| Retorno | `eh_retorno` (booleano) |
+- O processo começa em Entrada, mas a primeira evidência disponível pode ser posterior. Não inventar eventos, datas nem tempos.
+- **Entrada/duração inferidas ficam NULL no consumo.** Estimativas antigas ficam somente no checkpoint privado. Qualidade acompanha cada registro e a pendência explica a lacuna.
+- Saída nula identifica a última passagem até o corte. Um status terminal sem saída não significa projeto ainda em andamento.
+- Retorno é a segunda ou posterior passagem pelo mesmo status; não é duplicidade.
+- Excluir o projeto inteiro por múltiplos talentos, Squad, Talento e Interveniência preenchidos, coletivo/não pessoa, Interveniência sem identidade revisada ou quarentena manual de Marca/Talento. Ausência isolada de Marca/Talento não exclui.
+- Aliases dependem de revisão. Não unir pessoas/marcas automaticamente por similaridade de texto.
+- Orçamento vem da coluna people de mesmo nome, atualmente `person`. Não usar mensagens de usuário excluído como nome. Atributos são do cadastro na coleta, não prova de autoria histórica.
+- Tempo é corrido. Rankings usam passagens observadas, encerradas e consistentes (`elegivel_comparacao`). Ainda não há metas de SLA: estamos estudando tempos.
+- Terminais atuais: Encerrado, Declinado pelo Mercado, Declinado Internamente. Novos rótulos são descobertos; terminal depende de configuração.
 
-A tabela também guarda UTC, IDs/SKs, qualidade, corte, versão e indicadores por projeto. O consumidor ordena por `item_id, ordem_etapa`; não existe ordem física garantida em SQL. Detalhes: [dicionário](docs/OURO_CONSUMO.md) e [Power BI](docs/POWER_BI_PRD.md).
+## Publicação e atualização
 
-## Regras de negócio
+Python extrai, normaliza, reconstrói eventos, aplica regras e publica as duas tabelas na mesma transação. Estado e evidência internos ficam no arquivo SQLite do volume `/app/runtime`, não em outras tabelas PostgreSQL. Chaves/constraints, validação de sequência e referências, hash da publicação e checkpoint durável protegem a carga.
 
-1. Primeira/última linha são o primeiro/último trecho **disponível**. A primeira etapa do processo é Entrada, mas não inventar eventos para preencher lacunas. Tempo total desde Entrada só existe quando comprovado.
-2. Retorno é a segunda ou posterior passagem pelo mesmo status; não é duplicidade. Evento sem mudança real não reinicia o relógio.
-3. Duração corrida, incluindo noites/fins de semana. Saída nula indica última passagem aberta **no corte**. Status final pode continuar sem saída, embora o projeto esteja encerrado.
-4. Terminais configurados: Encerrado, Declinado pelo Mercado, Declinado Internamente. Status novos são descobertos; classificá-los como terminais exige configuração explícita.
-5. Históricos `observed`, `initial_inferred`, `no_history_inferred` permanecem distintos. Comparações usam `elegivel_comparacao`/`horas_observadas_encerradas`, sem misturar estimativas.
-6. Excluir o **projeto inteiro** da análise quando houver múltiplos talentos, Squad, ambas as colunas Talento/Interveniência, coletivo conhecido, identidade Interveniência pendente ou talento/marca manualmente em quarentena. Ausência de Marca/Talento isoladamente não exclui.
-7. Limpar Unicode/espaços/vazios. Similaridade de grafia não comprova identidade. Correspondências canônicas precisam de revisão humana; nenhum envio a IA externa.
-8. Responsável vem da coluna people Orçamento (ID atual `person`). Pessoas adicionais ficam agregadas, sem multiplicar linhas. Atributos são do cadastro observado, não prova de responsabilidade histórica.
-9. Corrigida a origem, a próxima coleta reavalia o projeto. Corrigido o catálogo, replay ou próxima carga reavalia. Reinclusão preserva IDs e histórico disponível.
+Uma tentativa automática diária às **06:00 America/Sao_Paulo**; deploy/reinício não extrai. Reserva persistente por data impede duplicar a tentativa. **D+1**, cortando à meia-noite do dia de execução: 12/09 às 06h fecha até o fim de 11/09. Eventos exatamente no corte entram no próximo fechamento. VPS/API indisponível impede execução; a agenda não garante disponibilidade externa.
 
-Não existem metas máximas de SLA: o objetivo é medir tempos para definir padrões. Espera de Marca: analisar separadamente Retorno Marca/Executivo e Aguardando Feedback; Talento: Validação Talento. Rankings mostram associação, não causalidade.
+`pendencias_projeto` reúne uma linha por projeto, com IDs, valores originais, motivos, orientação e `excluido_da_analise`. Correções no Monday são reavaliadas na próxima carga; a pendência resolvida desaparece e o projeto elegível volta à Gold. Históricos antigos ausentes não são recuperados por simples alteração do status atual. Catálogo revisado pode ser reaplicado com replay.
 
-## Código, estado e publicação
+## Documentação e manutenção
 
-Python extrai, trata, aplica regras e calcula a Gold. Bronze, derivados, catálogo, quarentena, watermark e reservas diárias passam a ser **coleções internas em um arquivo SQLite no volume `/app/runtime` do executor**. Não são tabelas no PostgreSQL de consumo. O arquivo não é outro servidor/banco a administrar no DBeaver.
+- [Guia direto, sequência e regras de correção](docs/CONSUMO_DIRETO.md).
+- [Dicionário de todos os campos públicos](docs/OURO_CONSUMO.md).
+- [Power BI passo a passo](docs/POWER_BI_PRD.md).
+- [ELT e pontos de extensão](docs/PRD_ELT_REGRAS.md).
+- [Operação, migração e recuperação](OPERATIONS.md).
+- [Evidências de validação](docs/VALIDACAO_OURO.md).
 
-Esse estado preserva a evidência que pode sair da retenção da API Monday. A quarentena é exportável em CSV e o catálogo revisável em JSON. O consumidor só acessa a Gold. O volume runtime agora precisa de backup junto do PostgreSQL.
-
-PK `interval_id`, UNIQUE quadro/projeto/ordem, índice único para última passagem, CHECKs de datas/duração/marcadores e NOT NULL protegem a Gold. Contratos Python validam as referências internas, IDs/SKs, datas, exclusões e sequência antes de publicar. Sem checkpoint compatível, o executor bloqueia a carga.
-
-Publicação: grava checkpoint candidato durável, substitui a Gold e seu recibo em uma transação PostgreSQL, promove o checkpoint. O recibo fica no comentário da tabela, sem criar tabela de controle. Reinício recupera a versão confirmada; falha não avança o watermark. Detalhes e extensão de regras: [PRD da ELT](docs/PRD_ELT_REGRAS.md).
-
-## Agenda e corte
-
-Uma tentativa automática diária às **06:00 America/Sao_Paulo** (`0 6 * * *`). Deploy/reinício apenas espera o próximo horário. Uma reserva determinística por data, persistida no checkpoint sob lock PostgreSQL, impede repetir a tentativa após reinício, inclusive após falha. Não executar dois agendadores. Backfill/replay são operações manuais de manutenção, não uma segunda agenda.
-
-**D+1:** a carga de 12/09 às 06h mede até 12/09 00:00, cobrindo o fim de 11/09. Eventos exatamente no corte entram no fechamento seguinte. `corte_local` informa o fechamento; `cadastro_referencia_utc` informa quando atributos foram observados. Nenhuma promessa de execução se VPS/API estiver indisponível; atraso deve aparecer no monitoramento.
-
-## Operação e evolução
-
-[OPERATIONS.md](OPERATIONS.md): deploy, migração, validação, recuperação. [QUARENTENA_E_IDENTIDADES.md](docs/QUARENTENA_E_IDENTIDADES.md): revisão sem tabela adicional. [VALIDACAO_OURO.md](docs/VALIDACAO_OURO.md): evidência observada.
-
-Escopo atual: um quadro, um executor, transformação em memória, VPS provisória. Novas áreas devem declarar origem/grão/chaves/regras e não cruzar sistemas apenas por nome. IDs/SKs e contrato facilitam migração futura para BigQuery; acesso corporativo, orquestração e reconciliação real serão necessários. BigQuery não foi implantado. Backups/alertas externos e infraestrutura definitiva continuam conforme aceite provisório, sem contratação nova.
+VPS provisória; BigQuery corporativo não implantado. IDs/SKs e contrato preservados ajudam na migração, que exigirá credenciais, adaptação de publicação e reconciliação próprias. Nenhum serviço pago novo foi contratado.

@@ -1,4 +1,4 @@
-"""One physical PostgreSQL table; private processing state in runtime SQLite.
+"""Two business PostgreSQL tables; private processing state in runtime SQLite.
 
 The PostgreSQL table comment is the atomic publication receipt. A checkpoint is
 fsynced first; after COMMIT it is promoted. Recovery follows the receipt, never
@@ -10,62 +10,22 @@ import json
 import uuid
 from contextlib import contextmanager
 
-from sqlalchemy import (
-    CheckConstraint,
-    Column,
-    Index,
-    MetaData,
-    Table,
-    UniqueConstraint,
-    select,
-    text,
-)
+from sqlalchemy import CheckConstraint, UniqueConstraint, select, text
 from sqlalchemy.schema import AddConstraint, CreateSchema
 
-from ..models.contracts import prepare_payload, required_columns, validate_table
-from ..models.schemas import DEFINITIONS, REPLACE_TABLES, TYPES, foreign_keys
+from ..models.consumption import (
+    GOLD,
+    PENDING,
+    PUBLIC_FIELDS,
+    consumer_tables,
+    public_fingerprint,
+    publication,
+)
+from ..models.contracts import prepare_payload, validate_table
+from ..models.schemas import DEFINITIONS, REPLACE_TABLES, foreign_keys
 from ..services.load import merge_rows
 from .checkpoint import Checkpoint, fingerprint
 from .postgres import PostgresStore
-
-GOLD = "gold_projeto_status"
-
-
-def consumer_tables(schema):
-    metadata = MetaData(schema=schema)
-    keys, fields = DEFINITIONS[GOLD]
-    table = Table(
-        GOLD,
-        metadata,
-        *[
-            Column(
-                name,
-                TYPES[kind],
-                primary_key=name in keys.split(","),
-                nullable=name not in required_columns(GOLD),
-            )
-            for name, kind in (f.split(":") for f in fields.split())
-        ],
-    )
-    table.append_constraint(
-        UniqueConstraint("board_id", "item_id", "ordem_etapa", name="uq_gold_projeto_ordem")
-    )
-    Index("ix_gold_projeto_status", table.c.board_id, table.c.item_id, table.c.ordem_etapa)
-    Index(
-        "uq_gold_ultima_passagem",
-        table.c.board_id,
-        table.c.item_id,
-        unique=True,
-        postgresql_where=table.c.intervalo_aberto,
-    )
-    for name, expression in {
-        "ck_gold_ordem": "ordem_etapa >= 1 AND passagem_numero_no_status >= 1",
-        "ck_gold_marcadores": "eh_primeiro_registro = (ordem_etapa=1) AND eh_retorno = (passagem_numero_no_status>1) AND intervalo_aberto=eh_ultimo_registro",
-        "ck_gold_fechamento": "intervalo_aberto = (saida_status_utc IS NULL) AND entrada_status_utc < corte_utc AND (saida_status_utc IS NULL OR saida_status_utc BETWEEN entrada_status_utc AND corte_utc)",
-        "ck_gold_duracao": "duracao_minutos >= 0 AND abs(duracao_minutos - extract(epoch FROM (coalesce(saida_status_utc,corte_utc)-entrada_status_utc))/60) < 0.00001 AND abs(duracao_horas*60-duracao_minutos) < 0.00001",
-    }.items():
-        table.append_constraint(CheckConstraint(expression, name=name))
-    return metadata, {GOLD: table}
 
 
 def validate_state(data):
@@ -119,13 +79,15 @@ class ConsumerStore(PostgresStore):
                 "Migração pendente: execute migrate-single-table no executor com volume persistente"
             )
         marker = json.loads(value)
-        if marker.get("storage") != 3 or marker.get("pipeline") != self.settings.pipeline_name:
-            raise RuntimeError("Publicação pertence a outro checkpoint/pipeline")
+        if marker.get("storage") != 4 or marker.get("pipeline") != self.settings.pipeline_name:
+            raise RuntimeError(
+                "Contrato de consumo pendente: execute migrate-consumption no executor"
+            )
         return marker["generation"]
 
     def _mark(self, conn, generation):
         marker = json.dumps(
-            {"storage": 3, "pipeline": self.settings.pipeline_name, "generation": generation}
+            {"storage": 4, "pipeline": self.settings.pipeline_name, "generation": generation}
         )
         literal = marker.replace("'", "''")
         conn.execute(text(f"COMMENT ON TABLE {self.settings.pg_schema}.{GOLD} IS '{literal}'"))
@@ -159,9 +121,9 @@ class ConsumerStore(PostgresStore):
     def initialize(self):
         with self.lock(), self.engine.begin() as conn:
             names = self._names(conn)
-            if names - {GOLD}:
+            if names and names != set(PUBLIC_FIELDS):
                 raise RuntimeError(
-                    "Tabelas legadas presentes: execute migrate-single-table antes da próxima carga"
+                    "Tabelas legadas presentes: execute migrate-consumption antes da próxima carga"
                 )
             if GOLD in names:
                 generation, _ = self._load(conn)
@@ -183,15 +145,18 @@ class ConsumerStore(PostgresStore):
         with self.engine.connect() as conn:
             conn.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
             _, data = self._load(conn)
+            expected = {}
+            if GOLD in names or PENDING in names:
+                expected = publication(data, self.settings.preferred_timezone)
+                for name, projected in expected.items():
+                    actual = [dict(r) for r in conn.execute(select(self.tables[name])).mappings()]
+                    if public_fingerprint(name, actual) != public_fingerprint(name, projected):
+                        raise RuntimeError(
+                            "Consumo alterado fora do pipeline: publicação diverge do checkpoint"
+                        )
             result = {}
             for name in names:
-                rows = data[name]
-                if name == GOLD:
-                    rows = [dict(r) for r in conn.execute(select(self.tables[GOLD])).mappings()]
-                    if fingerprint({GOLD: rows}) != fingerprint({GOLD: data[GOLD]}):
-                        raise RuntimeError(
-                            "Gold alterada fora do pipeline: publicação diverge do checkpoint"
-                        )
+                rows = expected[PENDING] if name == PENDING else data[name]
                 result[name] = copy.deepcopy(
                     [
                         r
@@ -222,6 +187,7 @@ class ConsumerStore(PostgresStore):
         with self.lock():
             with self.engine.connect() as conn:
                 generation, old = self._load(conn)
+            self.read_many([GOLD])  # Reject manual edits before replacing a published batch.
             self.checkpoint.promote(generation)
             data = dict(old)
             for name, rows in payload.items():
@@ -246,13 +212,20 @@ class ConsumerStore(PostgresStore):
             self.checkpoint.stage(generation, data)
             with self.engine.begin() as conn:
                 if GOLD in payload:
-                    table = self.tables[GOLD]
-                    conn.execute(table.delete().where(table.c.board_id == board_id))
-                    for offset in range(0, len(payload[GOLD]), 500):
-                        conn.execute(table.insert(), payload[GOLD][offset : offset + 500])
+                    self._publish(conn, data, board_id)
                 self._mark(conn, generation)
             self.checkpoint.promote(generation)
             self._generation, self._cache = generation, data
+
+    def _publish(self, conn, data, board_id):
+        for name, rows in publication(data, self.settings.preferred_timezone).items():
+            table = self.tables[name]
+            selected = [r for r in rows if r["board_id"] == board_id]
+            if name == GOLD:
+                selected.sort(key=lambda r: (r["item_id"], r["ordem_etapa"]))
+            conn.execute(table.delete().where(table.c.board_id == board_id))
+            for offset in range(0, len(selected), 500):
+                conn.execute(table.insert(), selected[offset : offset + 500])
 
     def claim_daily(self, row):
         with self.lock():
@@ -267,14 +240,29 @@ class ConsumerStore(PostgresStore):
             legacy = PostgresStore(self.settings)
             with self.engine.connect() as conn:
                 names = self._names(conn)
-            if names == {GOLD}:
+            if names == set(PUBLIC_FIELDS):
                 self.initialize()
-                return {"tables": [GOLD], "already_migrated": True}
-            if names != set(DEFINITIONS):
+                return {"tables": sorted(PUBLIC_FIELDS), "already_migrated": True}
+            if names not in ({GOLD}, set(DEFINITIONS)):
                 raise ValueError(
                     "Migração requer inventário legado exato; nenhum objeto foi excluído"
                 )
-            data = legacy.read_many(DEFINITIONS)
+            if names == {GOLD}:
+                with self.engine.connect() as conn:
+                    marker = json.loads(
+                        conn.scalar(
+                            text("SELECT obj_description(to_regclass(:t),'pg_class')"),
+                            {"t": f"{self.settings.pg_schema}.{GOLD}"},
+                        )
+                    )
+                if (
+                    marker.get("storage") != 3
+                    or marker.get("pipeline") != self.settings.pipeline_name
+                ):
+                    raise ValueError("Migração: origem não reconhecida")
+                data = self.checkpoint.load(marker["generation"])
+            else:
+                data = legacy.read_many(DEFINITIONS)
             if {r["board_id"] for r in data["dim_board"]} != {self.settings.monday_board_id}:
                 raise ValueError("Migração bloqueada: escopo contém outros quadros")
             validate_state(data)
@@ -284,7 +272,7 @@ class ConsumerStore(PostgresStore):
             saved = self.checkpoint.load(generation)
             if fingerprint(saved) != fingerprint(data):
                 raise RuntimeError("Reconciliação do checkpoint falhou; nada excluído")
-            backup = self.checkpoint.path.with_suffix(".before_migration.sqlite3")
+            backup = self.checkpoint.path.with_suffix(".before_consumption_v4.sqlite3")
             self.checkpoint.backup(backup)
             quote = self.engine.dialect.identifier_preparer.quote
             schema = quote(self.settings.pg_schema)
@@ -298,40 +286,66 @@ class ConsumerStore(PostgresStore):
                     )
                 )
                 # Reject out-of-band writes between snapshot and exclusive lock.
-                for name in DEFINITIONS:
+                for name in names:
                     rows = [dict(r) for r in conn.execute(select(legacy.tables[name])).mappings()]
                     if fingerprint({name: rows}) != fingerprint({name: data[name]}):
                         raise RuntimeError(
                             "Origem mudou durante migração; tente novamente, nada excluído"
                         )
-                constraints = (
+                grants = (
                     conn.execute(
                         text(
-                            "SELECT conname FROM pg_constraint WHERE conrelid=to_regclass(:t) AND contype='f'"
+                            "SELECT grantee,privilege_type,is_grantable FROM information_schema.role_table_grants "
+                            "WHERE table_schema=:s AND table_name=:t"
                         ),
-                        {"t": f"{self.settings.pg_schema}.{GOLD}"},
+                        {"s": self.settings.pg_schema, "t": GOLD},
                     )
-                    .scalars()
+                    .mappings()
                     .all()
                 )
-                for name in constraints:
-                    conn.execute(text(f"ALTER TABLE {schema}.{GOLD} DROP CONSTRAINT {quote(name)}"))
-                self._constraints(conn)
+                owner = conn.scalar(
+                    text(
+                        "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid=to_regclass(:t)"
+                    ),
+                    {"t": f"{self.settings.pg_schema}.{GOLD}"},
+                )
                 # No CASCADE: unknown external dependencies abort the transaction.
                 conn.execute(
-                    text(
-                        "DROP TABLE "
-                        + ",".join(f"{schema}.{quote(n)}" for n in sorted(names - {GOLD}))
-                    )
+                    text("DROP TABLE " + ",".join(f"{schema}.{quote(n)}" for n in sorted(names)))
                 )
+                self.metadata.create_all(conn)
+                self._publish(conn, data, self.settings.monday_board_id)
                 self._mark(conn, generation)
-                if self._names(conn) != {GOLD}:
+                for name in PUBLIC_FIELDS:
+                    conn.execute(
+                        text(f"ALTER TABLE {schema}.{quote(name)} OWNER TO {quote(owner)}")
+                    )
+                for grant in grants:
+                    privilege = grant["privilege_type"]
+                    if privilege not in {
+                        "SELECT",
+                        "INSERT",
+                        "UPDATE",
+                        "DELETE",
+                        "TRUNCATE",
+                        "REFERENCES",
+                        "TRIGGER",
+                        "MAINTAIN",
+                    }:
+                        raise ValueError("Migração: privilégio não reconhecido")
+                    role = "PUBLIC" if grant["grantee"] == "PUBLIC" else quote(grant["grantee"])
+                    option = " WITH GRANT OPTION" if grant["is_grantable"] == "YES" else ""
+                    conn.execute(text(f"GRANT {privilege} ON {schema}.{GOLD} TO {role}{option}"))
+                    if privilege == "SELECT":
+                        conn.execute(text(f"GRANT SELECT ON {schema}.{PENDING} TO {role}{option}"))
+                if self._names(conn) != set(PUBLIC_FIELDS):
                     raise RuntimeError("Inventário final divergente")
             self.checkpoint.promote(generation)
             return {
-                "tables": [GOLD],
+                "tables": sorted(PUBLIC_FIELDS),
                 "removed_tables": len(names) - 1,
                 "rows": len(data[GOLD]),
                 "checkpoint_verified": True,
                 "gold_fingerprint": fingerprint({GOLD: data[GOLD]}),
+                "pending_projects": len(publication(data, self.settings.preferred_timezone)[PENDING]),
             }

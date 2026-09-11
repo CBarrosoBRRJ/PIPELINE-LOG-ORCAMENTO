@@ -103,8 +103,8 @@ class PostgresStore:
                 text("SELECT obj_description(to_regclass(:t),'pg_class')"),
                 {"t": f"{self.settings.pg_schema}.gold_projeto_status"},
             )
-            if marker and '"storage": 3' in marker:
-                raise RuntimeError("Banco convertido para tabela única; use ConsumerStore")
+            if marker and any(f'"storage": {v}' in marker for v in (3, 4)):
+                raise RuntimeError("Banco convertido para consumo; use ConsumerStore")
             conn.execute(CreateSchema(self.settings.pg_schema, if_not_exists=True))
             self.metadata.create_all(conn)
             conn.execute(

@@ -1,25 +1,14 @@
--- Somente leitura; não exige as tabelas removidas.
-SELECT table_schema, table_name, table_type FROM information_schema.tables
-WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY 1,2;
-
+-- Inventário: exatamente as duas tabelas autorizadas no schema orcamento.
+SELECT table_name FROM information_schema.tables WHERE table_schema='orcamento' ORDER BY 1;
+-- Volumes e duplicidade física/negocial (as constraints também bloqueiam duplicatas).
 SELECT count(*) AS passagens, count(DISTINCT item_id) AS projetos,
-       count(*) - count(DISTINCT interval_id) AS duplicatas,
-       min(corte_local) AS corte_min, max(corte_local) AS corte_max,
-       min(cadastro_referencia_utc) AS coleta_min, max(cadastro_referencia_utc) AS coleta_max
+       count(*)-count(DISTINCT interval_id) AS ids_duplicados,
+       count(*)-count(DISTINCT (board_id,item_id,ordem_etapa)) AS ordens_duplicadas
 FROM orcamento.gold_projeto_status;
-
--- Deve retornar zero linhas (unicidade + início/fim da sequência).
-SELECT board_id,item_id FROM orcamento.gold_projeto_status GROUP BY board_id,item_id
-HAVING count(*)<>max(ordem_etapa) OR min(ordem_etapa)<>1
-   OR count(*)<>count(DISTINCT ordem_etapa)
-   OR count(*) FILTER (WHERE intervalo_aberto)<>1
-   OR count(*) FILTER (WHERE eh_primeiro_registro)<>1
-   OR count(*) FILTER (WHERE eh_ultimo_registro)<>1;
-
--- Deve retornar zero: as CHECKs também bloqueiam novas inconsistências.
-SELECT count(*) AS duracoes_divergentes FROM orcamento.gold_projeto_status
-WHERE abs(duracao_horas*60-duracao_minutos)>0.00001
-   OR abs(duracao_minutos-extract(epoch FROM (coalesce(saida_status_utc,corte_utc)-entrada_status_utc))/60)>0.00001;
-
-SELECT qualidade_historico,count(*) AS passagens FROM orcamento.gold_projeto_status
-GROUP BY qualidade_historico ORDER BY 1;
+SELECT qualidade_historico, count(*) AS registros, count(duracao_horas) AS tempos_comprovados
+FROM orcamento.gold_projeto_status GROUP BY 1 ORDER BY 1;
+SELECT excluido_da_analise, count(*) AS projetos FROM orcamento.pendencias_projeto GROUP BY 1;
+-- Deve retornar zero: um projeto excluído nunca entra na Gold.
+SELECT count(*) AS exclusoes_inconsistentes FROM orcamento.pendencias_projeto p
+WHERE p.excluido_da_analise AND EXISTS(SELECT 1 FROM orcamento.gold_projeto_status g
+ WHERE g.board_id=p.board_id AND g.item_id=p.item_id);

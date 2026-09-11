@@ -14,6 +14,7 @@ from sls_orcamento_pdd.config import Settings
 from sls_orcamento_pdd.db.checkpoint import fingerprint
 from sls_orcamento_pdd.db.consumer import GOLD, ConsumerStore
 from sls_orcamento_pdd.db.postgres import PostgresStore
+from sls_orcamento_pdd.models.consumption import PENDING, public_gold
 from sls_orcamento_pdd.models.schemas import DEFINITIONS
 from sls_orcamento_pdd.pipelines.runner import run
 
@@ -48,12 +49,12 @@ def test_cutover_preserves_every_record_and_never_recreates_tables(cfg, board):
     for _ in range(2):
         store = ConsumerStore(cfg)
         store.initialize()
-        assert store.check_connection()["tables"] == [GOLD]
+        assert store.check_connection()["tables"] == [GOLD, PENDING]
     run(cfg, client=FakeMonday(board), store=store, at=at())
     assert fingerprint({GOLD: store.read(GOLD)}) == fingerprint({GOLD: before[GOLD]})
-    assert store.check_connection()["tables"] == [GOLD]
+    assert store.check_connection()["tables"] == [GOLD, PENDING]
     assert store.migrate()["already_migrated"]
-    with pytest.raises(RuntimeError, match="tabela única"):
+    with pytest.raises(RuntimeError, match="convertido para consumo"):
         legacy.initialize()
 
 
@@ -87,10 +88,10 @@ def test_single_table_new_install_claims_failures_and_original_ids(cfg, board):
         ]
         == "skipped"
     )
-    assert store.check_connection()["tables"] == [GOLD]
+    assert store.check_connection()["tables"] == [GOLD, PENDING]
     assert store.read(GOLD)[0]["item_id"] == 123
     with pytest.raises(IntegrityError), store.engine.begin() as conn:
-        row = {**store.read(GOLD)[0], "interval_id": "duplicate-business-order"}
+        row = {**public_gold(store.read(GOLD))[0], "interval_id": "duplicate-business-order"}
         conn.execute(store.tables[GOLD].insert().values(row))
 
 
@@ -192,6 +193,50 @@ def test_review_import_export_and_out_of_band_gold_detection(cfg, board, monkeyp
         conn.execute(text(f"UPDATE {cfg.pg_schema}.{GOLD} SET marca_nome='outside-edit'"))
     with pytest.raises(RuntimeError, match="fora do pipeline"):
         ConsumerStore(cfg).read(GOLD)
+    with pytest.raises(RuntimeError, match="fora do pipeline"):
+        ConsumerStore(cfg).commit({GOLD: store._cache[GOLD]}, 42)
+
+
+def test_version3_upgrade_keeps_ids_and_hides_inferred_times(cfg, board):
+    import json
+
+    legacy = PostgresStore(cfg)
+    run(cfg, "backfill", client=FakeMonday(board), store=legacy, at=at())
+    before = legacy.read_many(DEFINITIONS)
+    store = ConsumerStore(cfg)
+    generation = str(uuid.uuid4())
+    store.checkpoint.stage(generation, before)
+    store.checkpoint.promote(generation)
+    with legacy.engine.begin() as conn:
+        foreign = (
+            conn.execute(
+                text(
+                    "SELECT conname FROM pg_constraint WHERE conrelid=to_regclass(:t) AND contype='f'"
+                ),
+                {"t": f"{cfg.pg_schema}.{GOLD}"},
+            )
+            .scalars()
+            .all()
+        )
+        for name in foreign:
+            conn.execute(text(f'ALTER TABLE {cfg.pg_schema}.{GOLD} DROP CONSTRAINT "{name}"'))
+        conn.execute(
+            text("DROP TABLE " + ",".join(f"{cfg.pg_schema}.{n}" for n in DEFINITIONS if n != GOLD))
+        )
+        marker = json.dumps({"storage": 3, "pipeline": cfg.pipeline_name, "generation": generation})
+        conn.execute(text(f"COMMENT ON TABLE {cfg.pg_schema}.{GOLD} IS '{marker}'"))
+    with pytest.raises(RuntimeError, match="legadas"):
+        store.initialize()
+    assert store.migrate()["tables"] == [GOLD, PENDING]
+    assert fingerprint(store.read_many(DEFINITIONS)) == fingerprint(before)
+    with store.engine.connect() as conn:
+        rows = list(conn.execute(store.tables[GOLD].select()).mappings())
+        assert len(rows) == len(before[GOLD])
+        assert rows[0]["interval_id"] == before[GOLD][0]["interval_id"]
+        assert rows[0]["duracao_horas"] is None
+        assert rows[0]["entrada_status_local"] is None
+        assert conn.scalar(text(f"SELECT count(*) FROM {cfg.pg_schema}.{PENDING}")) == 1
+    assert store.migrate()["already_migrated"]
 
 
 def test_health_uses_publication_but_does_not_hide_failed_attempt(cfg, board):

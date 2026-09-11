@@ -1,111 +1,61 @@
-# Gold para consumo — aplicação 3.0
+# Dicionário das duas tabelas públicas — 3.1.0
 
-Contrato executável 2.2.0. Tabela principal: **`dados_globo.orcamento.gold_projeto_status`**. Código: `services/gold.py`, chamado tanto por `daily/backfill` como por `replay`. Consulte [VALIDACAO_OURO.md](VALIDACAO_OURO.md) para evidências de publicação. A [prévia](PREVIA_OURO_CONSUMO.md) registra as decisões anteriores; este guia descreve a implementação.
+Regras, exemplos e roteiro: [CONSUMO_DIRETO.md](CONSUMO_DIRETO.md). Campos internos anteriores não representam mais o contrato físico do PostgreSQL.
 
-## O que importar no Power BI
+## gold_projeto_status
 
-1. Salvar uma cópia do PBIX atual.
-2. Obter Dados → PostgreSQL → conexão existente → modo Importar.
-3. Marcar **somente `orcamento.gold_projeto_status`** para o novo modelo. Não acrescentar as tabelas antigas de intervalos: são outra representação das mesmas passagens.
-4. O nome normalmente aparece como **`orcamento gold_projeto_status`** no Power BI. Os exemplos DAX usam esse nome com espaço e argumentos separados por vírgula.
-5. Usar campos da própria Gold para filtrar projeto, status, Marca, Talento e responsável. Não são necessários os relacionamentos anteriores entre sete tabelas para esse relatório.
-6. IDs/SKs, ordem e totais repetidos: configurar como Não resumir. Entrada/saída local: Data/Hora. Retorno: Verdadeiro/Falso. Durações: Número decimal.
-7. Criar as medidas de [power_bi_gold.dax](../powerbi/power_bi_gold.dax), uma por vez. Criar primeiro Projeto 360°; HTML Content consumirá essas medidas e linhas posteriormente.
+| Campo | Tipo | Aceita NULL | Descrição |
+|---|---|---|---|
+| `ordem_etapa` | int | Não | Sequência temporal dentro do projeto, iniciando em 1. |
+| `projeto_nome` | text | Não | Nome cadastral do projeto na coleta. |
+| `status_nome` | text | Não | Status deste trecho, não necessariamente o status atual. |
+| `entrada_status_local` | localtime | Sim | Início comprovado, em São Paulo; NULL se não comprovado. |
+| `saida_status_local` | localtime | Sim | Transição de saída conhecida; NULL na última passagem. |
+| `duracao_horas` | num | Sim | Horas corridas comprovadas; NULL para trecho inferido. |
+| `marca_nome` | text | Sim | Marca normalizada ou aprovada no catálogo; não se deduplica por similaridade. |
+| `talento_nome` | text | Sim | Pessoa individual elegível conforme cadastro/revisão. |
+| `responsavel_orcamento` | text | Sim | Pessoa(s) na coluna Orçamento; nomes técnicos inválidos não são publicados. |
+| `eh_retorno` | bool | Não | True na segunda ou posterior passagem pelo mesmo status. |
+| `item_id` | id | Não | ID original do item/projeto Monday, repetido entre suas passagens. |
+| `board_id` | id | Não | ID original do quadro Monday. |
+| `interval_id` | text | Não | Chave única da passagem. |
+| `qualidade_historico` | text | Não | observed, initial_inferred ou no_history_inferred. |
+| `intervalo_aberto` | bool | Não | Última passagem, ainda sem evento de saída no corte; não significa necessariamente projeto aberto. |
+| `status_final` | bool | Não | Se este status é terminal conforme configuração. |
+| `corte_local` | localtime | Não | Meia-noite que fecha o período, em São Paulo. |
+| `elegivel_comparacao` | bool | Não | Trecho observado, encerrado e consistente para comparação de tempos. |
+| `horas_observadas_encerradas` | num | Sim | Duração somente quando elegivel_comparacao=true; campo recomendado para mediana/média. |
+| `status_atual_nome` | text | Não | Último status reconstruído no corte, repetido no projeto. |
+| `projeto_na_fila` | bool | Não | Projeto ativo no cadastro e em etapa não terminal no corte. |
+| `tempo_desde_entrada_horas` | num | Sim | Total desde Entrada comprovada; NULL quando desconhecido. Usar MAX por projeto, nunca SUM das linhas. |
+| `tempo_status_atual_horas` | num | Sim | Horas na última etapa quando seu início foi comprovado; repetidas no projeto, usar MAX. |
+| `responsavel_situacao` | text | Não | identificado, ausente, nome_indisponivel, equipe ou texto_snapshot_sem_correspondencia_individual. |
+| `cadastro_referencia_utc` | time | Sim | Instante da observação dos atributos, em UTC. |
+| `versao_regras` | text | Não | Versão semântica e assinatura da configuração/catálogo. |
+| `item_sk` | text | Não | Chave substituta estável do projeto. |
+| `board_sk` | text | Não | Chave substituta estável do quadro. |
+| `status_id` | text | Não | Identidade original composta do status (quadro/coluna/rótulo). |
+| `status_sk` | text | Não | Chave substituta estável do status. |
+| `entrada_status_utc` | time | Sim | Início comprovado em UTC; NULL para inferência. |
+| `saida_status_utc` | time | Sim | Saída em UTC, se observada. |
+| `corte_utc` | time | Não | Mesmo fechamento de corte_local em UTC. |
+## pendencias_projeto
 
-No PostgreSQL: `SELECT ... ORDER BY item_id, ordem_etapa`. No relatório: filtrar um projeto e ordenar por `ordem_etapa`. A ordem física de uma tabela não garante ordem visual.
-
-## Uma linha por passagem
-
-| Campo para exibir | Significado |
-|---|---|
-| `item_id`, `projeto_nome` | ID original Monday e nome do projeto |
-| `ordem_etapa` | 1, 2, 3… em ordem cronológica por projeto |
-| `status_nome` | Etapa dessa passagem; não confundir com status atual |
-| `entrada_status_local` | Data e hora do início disponível, horário de São Paulo |
-| `saida_status_local` | Data e hora de saída; nula na passagem aberta |
-| `duracao_horas` | Duração corrida, até saída ou corte |
-| `marca_nome`, `talento_nome` | Atributos tratados do cadastro de referência |
-| `responsavel_orcamento` | Pessoas da coluna Orçamento; não é responsabilidade comprovada por cada etapa antiga |
-| `eh_retorno` | True se o projeto já passou pelo mesmo status no histórico disponível |
-| `qualidade_historico` | `observed`, `initial_inferred` ou `no_history_inferred` |
-| `corte_local` | Até quando os dados foram medidos |
-
-`eh_primeiro_registro` e `eh_ultimo_registro` identificam as extremidades disponíveis. Eventos sem mudança real de status não reiniciam o relógio. Empates de horário preservam a ordem nativa reconstruída pelo transformador. Uma segunda passagem pelo mesmo status é um retorno legítimo, com outra chave de intervalo.
-
-A primeira etapa de negócio é Entrada. Quando não há evento que comprove o início, `entrada_comprovada_utc` e `tempo_desde_entrada_horas` ficam nulos. A Gold não inventa uma Entrada para preencher a primeira linha. Qualidade inferida sempre acompanha estimativas de permanência antiga.
-
-A última passagem fica com saída nula. Um status final pode continuar sem saída, embora o projeto esteja encerrado. O tempo total desde Entrada termina na finalização comprovada; a permanência na etapa final continua registrada. Se cadastro atual e histórico divergirem, `status_atual_divergente=true`; não inventar a hora da transição faltante.
-
-Todos os horários locais estão em America/Sao_Paulo, sem fuso embutido para apresentação. Os campos UTC são a referência inequívoca. Duração é corrida, incluindo noites/fins de semana. A Gold fecha o dia anterior à coleta: carga das 06h com corte à meia-noite local. Cadastros mantêm a data real de observação, separada do corte dos tempos. Veja [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md).
-
-## Regras de elegibilidade do projeto
-
-Aplicadas ao último snapshot disponível até a coleta, para **o projeto inteiro**:
-
-- Talento e Interveniência preenchidos, mesmo se iguais: excluir.
-- Múltipla seleção de IDs no dropdown: excluir.
-- Lista textual explícita com vírgula, ponto e vírgula, quebra de linha, `+`, ou `&`/`/` entre espaços: excluir. Identidade individual aprovada no catálogo pode esclarecer pontuação de um nome; seleção múltipla e ambas as colunas continuam excluídas.
-- Squad de Talentos, com normalização de espaços/caixa: excluir.
-- Coletivos confirmados Bruno e Marrone, Manual do Mundo, PodPah, ou qualquer entidade de talento aprovada como organização/coletivo: excluir.
-
-A detecção textual não reconhece automaticamente todas as combinações possíveis. Texto livre desconhecido não é presumido pessoa nem unido por similaridade. O cadastro de revisão resolve casos novos sem inventar identidades.
-
-Marca/Talento vazio não exclui automaticamente um projeto. Campo desconhecido permanece nulo. Sem histórico completo, as passagens ficam identificadas como inferidas e não entram na comparação de tempos observados.
-
-Identidade de Interveniência pendente e grafias explicitamente classificadas como `quarantined` também separam o projeto inteiro. O relatório privado `projetos_quarentena.csv` reúne os nomes originais e motivos, uma linha por projeto. Correção/revisão permite reinclusão na próxima publicação. Guia: [QUARENTENA_E_IDENTIDADES.md](QUARENTENA_E_IDENTIDADES.md).
-
-Todos os indicadores da Gold abrangem **somente os projetos elegíveis**, incluindo fila, totais e indicadores de Marca. Projetos excluídos continuam nas camadas técnicas. Uma correção no Monday ou nas regras pode reincluir seu histórico na próxima carga. Assim, números históricos podem mudar com correções; corte e versão tornam essa mudança auditável.
-
-`data_quality_issue`, código `gold_projeto_excluido`, registra um apontamento por projeto, com os motivos e a versão no JSON textual `detail`. Os motivos podem se sobrepor; não somar contagens por motivo como se fossem projetos diferentes.
-
-## Marca e Talento: normalização e revisão
-
-Limpeza: Unicode NFC, espaços repetidos, vazios → nulo. A chave de comparação usa caixa uniforme, mantendo acentos/pontuação. Não remover automaticamente acentos para juntar identidades nem alterar maiúsculas de exibição indiscriminadamente.
-
-| Situação | Interpretação |
-|---|---|
-| Marca `texto_normalizado` | Grafia limpa; ainda não há equivalência canônica aprovada |
-| Talento `cadastro_exclusivo` | Nome único informado na coluna de talentos exclusivos, sem exclusões detectadas; identidade baseada no cadastro, sem dedução por IA |
-| `aprovado` | Correspondência explícita revisada no catálogo |
-| Talento `pendente_revisao` | Texto de Interveniência ainda sem identidade individual aprovada; o projeto inteiro vai para `quarentena_projeto`, fora da Gold |
-| `ausente` | Campo não informado |
-
-`meta_entity_mapping` é a coleção interna de revisão no checkpoint, no grão quadro + tipo de entidade + chave do texto original. O pipeline descobre candidatos pendentes, mas **não sobrescreve aprovações humanas**. Fonte e nome original permanecem disponíveis. `canonical_id` é um identificador estável escolhido uma vez, por exemplo UUID; não deve depender de futuras alterações no nome.
-
-Para revisar nomes, exportar/importar o catálogo pelo executor: [QUARENTENA_E_IDENTIDADES.md](QUARENTENA_E_IDENTIDADES.md). Essas coleções não existem mais no PostgreSQL. Corrigir o Monday e aguardar a coleta diária; para revisões do catálogo, importar o JSON revisado e executar replay. O Power BI/DBeaver consulta somente a Gold.
-
-`meta_gold_rule_snapshot` (coleção privada) guarda de forma imutável o conteúdo das aprovações, mapeamentos e configuração de cada versão usada. `versao_regras` contém versão do código de regras + hash do conteúdo. Reconstruir uma versão antiga exige também código/fontes/corte correspondentes; o comando replay normal usa o catálogo atual.
-
-Não houve contratação de IA/NLP ou envio dos cadastros a terceiros. Grafias pendentes não são correções já realizadas.
-
-## Responsáveis e demais pessoas
-
-Orçamento é identificado pelo título normalizado da coluna people; no quadro atual o ID é `person`. Também são projetados `talent_manager`, `gp`, `audiencia`, `conteudo` e `producao`. Mapeamento ausente de Orçamento ou ambíguo bloqueia o lote.
-
-IDs e nomes ficam em `responsaveis_orcamento_json` e `pessoas_referencia_json`. Duplicatas da mesma pessoa/coluna são removidas. Vários responsáveis aparecem juntos na apresentação, sem duplicar passagens nem horas; isso não aciona a regra de múltiplos **talentos**.
-
-Nomes são recuperados do cadastro de pessoas ou do snapshot. Quando a API de usuários não identifica o nome, o texto original da coluna pode identificar um único responsável. Havendo vários IDs sem correspondência individual, preservamos o texto original para apresentação, mas não associamos nomes a IDs por posição. Essa situação fica explícita em `responsavel_situacao`; cada pessoa também informa `nome_origem` no JSON.
-
-Campos são do cadastro de referência (`cadastro_referencia_utc`), não prova de responsabilidade histórica por cada etapa. Responsável vazio não exclui automaticamente o projeto. Para futuro ranking individual de vários responsáveis, definir atribuição e denominador antes de expandir pessoas; não somar horas de linhas multiplicadas.
-
-## Medidas: o que somar e o que não somar
-
-- `duracao_horas`: somar para tempo por etapa/projeto no histórico selecionado; contém estimativas, identificadas pela qualidade.
-- `horas_observadas_encerradas`: só passagens observadas e encerradas de projetos sem divergência/cadeia inconsistente conhecida; demais linhas nulas. Usar para comparações de média/mediana/P95, sempre mostrando a amostra.
-- `tempo_desde_entrada_horas` e `tempo_status_atual_horas`: **repetidos por projeto; nunca somar diretamente**. Para Projeto 360°, MAX com um único projeto; para fila, MAX por projeto dentro de uma média. O tempo atual pode ser inferido; não rotular como observado sem verificar a última passagem.
-- Projetos: contagem distinta de `item_sk`. Passagens: contagem de `interval_id`. Retornos: contar linhas `eh_retorno=true`.
-- Fila por status: usar `status_atual_nome` e `projeto_na_fila`, não `status_nome` histórico. Se filtrar etapas/período históricos, a fila representa a coorte selecionada, não necessariamente o quadro inteiro.
-
-Mediana/P95 por passagem não são mediana/P95 do total acumulado por projeto. Médias/medianas respondem aos filtros no Power BI; não calcular média de medianas pré-agregadas. Filtros de início de passagem selecionam uma coorte; não recortam automaticamente horas na fronteira do período.
-
-Marca: separar **Em elaboração - Retorno Marca/Executivo** e **Aguardando Feedback**. Talento: **Em revisão - Validação Talento**, sem misturar validação de Talent Manager/Gestão Esporte. Mostrar amostra e qualidade; não afirmar causalidade nem dentro/fora do SLA, pois ainda não existem metas.
-
-## Publicação e manutenção
-
-Há 20 tabelas com função na carga, auditoria ou consumo. O consumidor de indicadores importa somente a Gold; a quarentena é uma fila independente de saneamento. As quatro views antigas foram substituídas e têm migração explícita de remoção.
-
-Publicação sob lock por quadro, com PK/FKs e contrato; substitui a Gold daquele quadro na mesma transação dos derivados/watermark. Uma falha reverte a transação. Reexecução não acrescenta cópias: preserva `interval_id`; novas passagens legítimas recebem suas próprias chaves. Exclusões retiram todas as linhas do projeto da Gold, preservando a origem. A ferramenta de validação reconcilia o conjunto exato de passagens elegíveis, horários/durações e sequência/retornos.
-
-Comandos: `sla-pipeline replay`, `sla-pipeline validate`, `sla-pipeline validate-gold`, `sla-pipeline quality-profile`. `health` verifica o executor e não é substituído por replay. Logs da carga incluem quantidade de linhas, projetos incluídos/excluídos e versão Gold.
-
-Contrato completo: [CONTRATOS_DE_DADOS.md](CONTRATOS_DE_DADOS.md). Consultas: [009_gold_consumo.sql](../sql/009_gold_consumo.sql). PostgreSQL e DDL/adaptador BigQuery compartilham o contrato, inclusive tipos DATETIME para apresentação local. BigQuery real permanece sem implantação/teste com conta corporativa.
+| Campo | Tipo | Aceita NULL | Descrição |
+|---|---|---|---|
+| `item_id` | id | Não | ID original do item/projeto Monday, repetido entre suas passagens. |
+| `board_id` | id | Não | ID original do quadro Monday. |
+| `projeto_nome` | text | Não | Nome cadastral do projeto na coleta. |
+| `excluido_da_analise` | bool | Não | True: projeto ausente da Gold por regra de exclusão. False: aviso sobre projeto mantido. |
+| `motivos` | text | Não | Descrição legível dos motivos atuais, separados por |. |
+| `como_corrigir` | text | Não | Orientação de ação no Monday/revisão/histórico. |
+| `marca_original` | text | Sim | Valor recebido na coluna Marca. |
+| `talento_original` | text | Sim | Valor recebido na coluna Talento. |
+| `interveniencia_original` | text | Sim | Valor recebido na coluna Interveniência. |
+| `responsavel_orcamento_original` | text | Sim | Texto original da coluna Orçamento, inclusive referência inválida para diagnóstico. |
+| `codigos` | text | Não | Códigos estáveis dos motivos atuais, separados por |. |
+| `cadastro_referencia_utc` | time | Sim | Instante da observação dos atributos, em UTC. |
+| `corte_local` | localtime | Não | Meia-noite que fecha o período, em São Paulo. |
+| `versao_regras` | text | Não | Versão semântica e assinatura da configuração/catálogo. |
+| `item_sk` | text | Não | Chave substituta estável do projeto. |
+Tipos: id=int64, int=inteiro, text=texto, num=decimal, bool=booleano, localtime=data/hora local sem fuso, time=instante com fuso. JSON não é necessário nas duas tabelas de consumo. A tabela principal tem 33 campos; os dez do exemplo aparecem primeiro. As demais colunas suportam integração, filtros e qualidade.

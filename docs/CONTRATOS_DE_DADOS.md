@@ -3,7 +3,7 @@
 Versão 2.2.0. Fonte: `models/schemas.py` e `models/contracts.py`.
 Regenerar com `python scripts/generate_contract_docs.py`.
 
-PostgreSQL v3 contém SOMENTE gold_projeto_status. Os outros nomes abaixo são coleções internas do checkpoint no volume runtime, não tabelas PostgreSQL.
+Este é o contrato lógico INTERNO do checkpoint. PostgreSQL 3.1 contém somente as projeções públicas gold_projeto_status e pendencias_projeto, definidas em models/consumption.py. Campos físicos: [OURO_CONSUMO.md](OURO_CONSUMO.md).
 Significado de negócio das coleções: [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md).
 Política de nulos e tratamento: [ARQUITETURA_E_GOVERNANCA.md](ARQUITETURA_E_GOVERNANCA.md).
 

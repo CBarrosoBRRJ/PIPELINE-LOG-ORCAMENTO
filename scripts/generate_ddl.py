@@ -16,7 +16,7 @@ def main():
     root = Path(__file__).resolve().parents[1] / "sql"
     metadata, tables = consumer_tables("orcamento")
     parts = [
-        "-- PostgreSQL v3: ONLY the consumption table. Use CLI init-db (new) or migrate-single-table (legacy) to pair executor state.",
+        "-- PostgreSQL 3.1: Gold + project review queue only. Use CLI init-db (new) or migrate-consumption (upgrade).",
         "CREATE SCHEMA IF NOT EXISTS orcamento;",
     ]
     dialect = postgresql.dialect()
@@ -36,8 +36,8 @@ def main():
         encoding="utf-8",
     )
     migration = [
-        "-- PostgreSQL v3: reference uniqueness only. Internal references are validated in Python.",
-        "-- Legacy migration: sla-pipeline migrate-single-table. Never recreate technical tables.",
+        "-- PostgreSQL 3.1: reference uniqueness only. Internal references are validated in Python.",
+        "-- Legacy migration: sla-pipeline migrate-consumption. Never recreate technical tables.",
     ]
     constraints = []
     for table in tables.values():

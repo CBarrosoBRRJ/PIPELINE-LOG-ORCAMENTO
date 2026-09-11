@@ -3,6 +3,8 @@ Projetos = DISTINCTCOUNT('orcamento gold_projeto_status'[item_sk])
 
 Passagens = COUNTROWS('orcamento gold_projeto_status')
 
+Passagens Comprovadas = CALCULATE([Passagens], 'orcamento gold_projeto_status'[qualidade_historico] = "observed")
+
 Horas por Status = SUM('orcamento gold_projeto_status'[duracao_horas])
 
 Retornos = CALCULATE(COUNTROWS('orcamento gold_projeto_status'), 'orcamento gold_projeto_status'[eh_retorno] = TRUE())
@@ -38,3 +40,7 @@ Mediana Retorno Marca h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('orcam
 Mediana Feedback h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('orcamento gold_projeto_status'[status_nome] = "Aguardando Feedback"))
 
 Projetos Amostra Talento = CALCULATE([Projetos da Amostra], KEEPFILTERS('orcamento gold_projeto_status'[status_nome] = "Em revisão - Validação Talento"))
+
+Projetos com Pendencias = COUNTROWS('orcamento pendencias_projeto')
+
+Projetos Excluidos = CALCULATE([Projetos com Pendencias], 'orcamento pendencias_projeto'[excluido_da_analise] = TRUE())

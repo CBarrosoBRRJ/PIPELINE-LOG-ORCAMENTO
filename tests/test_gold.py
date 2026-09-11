@@ -205,3 +205,39 @@ def test_source_people_text_recovers_name_without_guessing_multiple_ids(settings
     assert multiple["responsavel_orcamento"] == raw["text"]
     assert all(p["nome"] is None for p in multiple["responsaveis_orcamento_json"])
     assert multiple["responsavel_situacao"] == "texto_snapshot_sem_correspondencia_individual"
+
+
+@pytest.mark.parametrize("source", ["snapshot_text", "catalog", "membership"])
+def test_deleted_person_label_is_not_a_responsible_name(settings, board, sample, source):
+    snap = sample[1][0]
+    raw = next(v for v in snap["raw_data"]["column_values"] if v["id"] == "owner_x")
+    raw["text"] = "Deleted on invitation cancelation" if source == "snapshot_text" else None
+    persons = []
+    if source == "catalog":
+        persons = [{"person_id": "99", "person_name": "Deleted on invitation cancelation"}]
+    if source == "membership":
+        snap["pessoas_json"][0]["name"] = "  Deleted on invitation cancellation  "
+    before = copy.deepcopy(snap)
+    rows = build(settings, board, sample, persons=persons)["gold_projeto_status"]
+    assert len(rows) == 2  # Missing responsible name does not discard a valid project.
+    for row in rows:
+        assert row["responsavel_orcamento"] is None
+        assert row["responsavel_situacao"] == "nome_indisponivel"
+        assert row["quantidade_responsaveis_orcamento"] == 1
+        assert row["responsaveis_orcamento_json"][0]["id"] == "99"
+        assert row["responsaveis_orcamento_json"][0]["nome"] is None
+    assert snap == before  # Keep the original evidence.
+
+
+def test_deleted_person_in_mixed_text_does_not_override_resolved_owner(settings, board, sample):
+    snap = sample[1][0]
+    raw = next(v for v in snap["raw_data"]["column_values"] if v["id"] == "owner_x")
+    raw["text"] = "Responsável A, Deleted on invitation cancelation"
+    snap["pessoas_json"].append({"id": "100", "kind": "person", "source_column_id": "owner_x"})
+    row = build(
+        settings, board, sample, persons=[{"person_id": "99", "person_name": "Responsável A"}]
+    )["gold_projeto_status"][0]
+    assert row["responsavel_orcamento"] == "Responsável A"
+    assert row["quantidade_responsaveis_orcamento"] == 2
+    assert sum(p["nome"] is None for p in row["responsaveis_orcamento_json"]) == 1
+    assert row["responsavel_situacao"] == "nome_indisponivel"

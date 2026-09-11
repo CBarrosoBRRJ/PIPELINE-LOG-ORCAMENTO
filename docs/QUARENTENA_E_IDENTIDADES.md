@@ -1,3 +1,5 @@
+> **Atualização 3.1.0:** a lista de revisão está no PostgreSQL em `orcamento.pendencias_projeto`, única tabela adicional autorizada junto da Gold. Ela atualiza na mesma transação da Gold e reúne exclusões e avisos, diferenciados por `excluido_da_analise`. CSV/JSON continuam exportações opcionais do executor. Não editar a tabela diretamente; corrigir no Monday ou revisar o catálogo. Inventário esperado: duas tabelas, sem auxiliares. Migração atual: `migrate-consumption`; contrato e uso: [CONSUMO_DIRETO.md](CONSUMO_DIRETO.md).
+
 # Revisão de nomes e projetos fora da análise
 
 Na versão 3.0, PostgreSQL contém apenas `orcamento.gold_projeto_status`. **Não existe tabela de quarentena ou catálogo no banco de consumo.** Esses dados ficam no checkpoint privado do executor e podem ser exportados sem entrar nos KPIs.

@@ -26,6 +26,7 @@ def main():
             "check-db",
             "quality-profile",
             "migrate-single-table",
+            "migrate-consumption",
             "export-review",
             "import-review",
             "backup-state",
@@ -37,6 +38,7 @@ def main():
         settings = load_settings(args.env_file)
         if args.command in {
             "migrate-single-table",
+            "migrate-consumption",
             "export-review",
             "import-review",
             "backup-state",
@@ -47,8 +49,8 @@ def main():
             if settings.target_db != "postgres":
                 raise ValueError("Comando disponível para o executor PostgreSQL")
             store = ConsumerStore(settings)
-            if args.command == "migrate-single-table":
-                emit("single_table_migration", **store.migrate())
+            if args.command in {"migrate-single-table", "migrate-consumption"}:
+                emit("consumption_migration", **store.migrate())
             elif args.command == "export-review":
                 emit("review_exported", **export_review(store, settings))
             elif args.command == "backup-state":

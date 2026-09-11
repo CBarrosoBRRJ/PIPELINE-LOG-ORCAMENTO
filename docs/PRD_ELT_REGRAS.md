@@ -1,15 +1,17 @@
-# PRD da ELT — manutenção 3.0
+> **Contrato de consumo 3.1.0:** o PostgreSQL publica somente Gold (33 campos, estimativas mascaradas) e `pendencias_projeto` (15 campos, uma linha por projeto). O usuário autorizou essa segunda tabela para revisão. As coleções técnicas descritas abaixo são privadas em runtime. Dicionário físico atual: [OURO_CONSUMO.md](OURO_CONSUMO.md); passo a passo atual: [CONSUMO_DIRETO.md](CONSUMO_DIRETO.md). `models/consumption.py` aplica a projeção pública após a Gold interna; `db/consumer.py` publica as duas tabelas atomicamente. Regras 2.2.1 rejeitam nomes técnicos de usuários excluídos. Para migrar versões anteriores: `migrate-consumption`.
 
-**Arquitetura atual:** código Python → checkpoint privado no volume → uma tabela PostgreSQL pronta. Regras/contrato 2.2.0 preservados; a migração de armazenamento não altera os cálculos. Comece pelo [PRD principal](../PRD.md) e siga o [procedimento de operação](../OPERATIONS.md).
+# PRD da ELT — manutenção 3.1
+
+**Arquitetura atual:** código Python → checkpoint privado no volume → Gold e pendências PostgreSQL. Regras 2.2.1; contrato lógico interno 2.2.0 e contrato físico de consumo 4. Estimativas permanecem no estado privado; o consumo publica NULL nos tempos não comprovados. Comece pelo [PRD principal](../PRD.md) e siga o [procedimento de operação](../OPERATIONS.md).
 
 
-Versão 2.2.0 · 11/09/2026. Este é o mapa atual para implementar, revisar e operar regras. O [guia de consumo](OURO_CONSUMO.md) explica os campos e o Power BI; o [contrato gerado](CONTRATOS_DE_DADOS.md) registra tipos, chaves e nulabilidade. Documentos marcados como legados não definem o modelo novo.
+Versão de aplicação 3.1.0 · 11/09/2026. Este é o mapa atual para implementar, revisar e operar regras. O [guia de consumo](OURO_CONSUMO.md) explica os campos e o Power BI; o [contrato gerado](CONTRATOS_DE_DADOS.md) registra tipos, chaves e nulabilidade. Documentos marcados como legados não definem o modelo novo.
 
 ## 1. Resultado e limite do produto
 
-O Python extrai, trata, valida e publica `dados_globo.orcamento.gold_projeto_status`. O Power BI importa somente essa tabela. Uma linha significa **uma passagem de um projeto por um status**, com data/hora de entrada e saída, duração, Marca, Talento e responsável da coluna Orçamento. Retornar a uma etapa gera outra passagem legítima, com `eh_retorno=true`; não é duplicidade.
+O Python extrai, trata, valida e publica `dados_globo.orcamento.gold_projeto_status`. O Power BI importa essa tabela para indicadores e `pendencias_projeto` para revisão. Uma linha significa **uma passagem de um projeto por um status**, com data/hora de entrada e saída, duração, Marca, Talento e responsável da coluna Orçamento. Retornar a uma etapa gera outra passagem legítima, com `eh_retorno=true`; não é duplicidade.
 
-O produto mede permanência corrida, inclusive noites e finais de semana. Não existem metas de SLA definidas. A primeira etapa de negócio é Entrada, mas a primeira linha histórica disponível pode ser outra: não inventamos eventos ou datas ausentes. A comparação de desempenho usa `elegivel_comparacao=true` (passagens observadas, encerradas e sem divergência detectada). Os demais tempos são apresentados com sua qualidade explícita.
+O produto mede permanência corrida, inclusive noites e finais de semana. Não existem metas de SLA definidas. A primeira etapa de negócio é Entrada, mas a primeira linha histórica disponível pode ser outra: não inventamos eventos ou datas ausentes. A comparação de desempenho usa `elegivel_comparacao=true` (passagens observadas, encerradas e sem divergência detectada). Tempos inferidos ficam NULL no consumo, com qualidade e motivo de pendência explícitos.
 
 ## 2. Horário, corte e recuperação
 
@@ -25,7 +27,7 @@ Há dois relógios diferentes:
 | `gold_projeto_status.corte_utc/local` | Limite exclusivo do dia fechado para tempos e sequência |
 | `cadastro_referencia_utc` | Quando o cadastro de Marca, Talento, responsáveis e atividade foi observado |
 
-A API fornece o cadastro observado durante a coleta. **Não afirmamos que esses atributos estavam assim à meia-noite ou na passagem antiga.** Marca, Talento, responsável e `projeto_ativo` são a atribuição cadastral disponível, com data de referência. O status publicado é a última etapa do histórico anterior ao corte; divergências da origem continuam sinalizadas. Uma correção de cadastro pode reclassificar todo o histórico.
+A API fornece o cadastro observado durante a coleta. **Não afirmamos que esses atributos estavam assim à meia-noite ou na passagem antiga.** Marca, Talento, responsável e atividade do projeto são a atribuição cadastral disponível, com data de referência. O status publicado é a última etapa do histórico anterior ao corte; divergências da origem continuam sinalizadas. Uma correção de cadastro pode reclassificar todo o histórico.
 
 Antes da extração agendada, o executor grava uma reserva na coleção privada `etl_run`: `run_id` UUID determinístico de pipeline + data local, `mode=scheduled`. A checagem de chave sob advisory lock e a persistência no checkpoint impedem uma segunda reserva da mesma data. Reinício, outro processo ou repetição do comando `daily` não duplicam uma data já reservada. O registro passa a `success` na publicação ou `failed` em falha; uma queda abrupta pode deixá-lo `running`, o que também bloqueia repetição automática.
 
@@ -44,7 +46,8 @@ O primeiro ambiente novo precisa de `backfill` antes de ativar o agendador. A re
 7. **Elegibilidade/identidades/pessoas:** módulos em `rules/` aplicam as regras abaixo ao cadastro disponível. A exclusão remove o projeto inteiro da Gold. Diagnósticos registram motivo e versão; não descartam a evidência usada para a decisão.
 8. **Gold D+1:** `services/gold.py` enriquece as passagens; `rules/cutoff.py` retém somente entradas anteriores ao corte, limita a última duração e recalcula status no corte, primeira/última linha e totais comprovados. Não altera a Bronze ou os intervalos técnicos da coleta.
 9. **Validação:** contrato + referências internas + reconciliação com origem + sequência + retornos + conjunto exato de passagens elegíveis. PK, NOT NULL, UNIQUE, índice parcial e CHECKs da Gold complementam as regras Python; não existem FKs para tabelas removidas.
-10. **Publicação:** `db/consumer.py::commit` prepara estado durável no volume, substitui Gold e recibo em uma transação PostgreSQL, depois promove o checkpoint. Falha recupera a geração apontada pelo recibo. A reserva operacional é publicada antes da extração para sobreviver à falha e impedir repetição automática. Não existe transação distribuída nativa entre SQLite e PostgreSQL.
+10. **Projeção pública:** `models/consumption.py` mantém os dez campos de negócio primeiro, preserva IDs, mascara início/duração inferidos e produz uma linha por projeto com pendências.
+11. **Publicação:** `db/consumer.py::commit` prepara estado durável no volume, substitui Gold, pendências e recibo em uma transação PostgreSQL, depois promove o checkpoint. Falha recupera a geração apontada pelo recibo. A reserva operacional é publicada antes da extração para sobreviver à falha e impedir repetição automática. Não existe transação distribuída nativa entre SQLite e PostgreSQL.
 
 O parsing/tratamento ocorre em memória antes da preparação do checkpoint candidato. Não há landing independente anterior à transformação. O termo ELT descreve o fluxo de dados; operacionalmente há ETL em Python e replay das evidências guardadas no volume. Não há tratamento pesado dentro do Power BI.
 
@@ -62,8 +65,9 @@ O parsing/tratamento ocorre em memória antes da preparação do checkpoint cand
 | `rules/__init__.py` | Versão semântica das regras | Versão gravada na publicação |
 | `services/gold.py` | Montagem e reconciliação da tabela final | `tests/test_gold.py`, `tests/test_cutoff.py` |
 | `services/scheduler.py` | Horário diário sem carga ao iniciar | `tests/test_scheduler.py` |
-| `db/consumer.py`, `db/checkpoint.py` | Reserva diária, estado durável, recuperação e publicação de tabela única | `tests/test_consumer.py` |
+| `db/consumer.py`, `db/checkpoint.py` | Reserva diária, estado durável, recuperação e publicação das duas tabelas de negócio | `tests/test_consumer.py` |
 | `db/postgres.py` | Adaptador legado de migração e lock PostgreSQL; não usado para criar tabelas na rotina atual | `tests/test_postgres.py` |
+| `models/consumption.py` | Contrato físico, projeção e pendências recalculadas | `tests/test_consumption.py`, `tests/test_consumer.py` |
 | `models/schemas.py`, `models/contracts.py` | Grão, tipos, relações e validações portáteis | Testes de contrato, chaves e PostgreSQL |
 
 ### Exclusões vigentes
@@ -85,7 +89,7 @@ Marca/Talento nulo não exclui automaticamente o projeto. Interveniência ainda 
 
 O mecanismo automático limpa formato; o catálogo `meta_entity_mapping` resolve equivalência real. Duas grafias da mesma pessoa ou Marca recebem o mesmo `canonical_id`, nome e tipo, somente após revisão. Não unir pessoas por similaridade, nem converter coletivos em pessoas individuais. Não há IA externa ou serviço pago neste processo.
 
-Alterar aliases no DBeaver: localizar os candidatos, revisar com a equipe, preencher identidade/tipo/revisor, aprovar e atualizar `updated_at`. Não alterar `source_key` para corrigir o nome. A próxima carga aplica a revisão; `replay` antecipa a aplicação usando a coleta já existente. Aprovações conflitantes ou incompletas bloqueiam a publicação; o pipeline nunca sobrescreve revisão humana.
+Revisar aliases pelo catálogo exportado (`export-review`): localizar candidatos, confirmar com a equipe, preencher identidade/tipo/revisor, aprovar e atualizar `updated_at`; importar com `import-review --review-file`. O catálogo não é uma tabela PostgreSQL. Não alterar `source_key` para corrigir o nome. A próxima carga aplica a revisão; `replay` antecipa a aplicação usando a coleta já existente. Aprovações conflitantes ou incompletas bloqueiam a publicação; o pipeline nunca sobrescreve revisão humana.
 
 ## 5. Como acrescentar ou mudar uma regra
 
@@ -100,17 +104,17 @@ Alterar aliases no DBeaver: localizar os candidatos, revisar com a equipe, preen
 
 Para desfazer: restaurar regra/catálogo anterior e reprocessar a partir da Bronze compatível, após verificar o corte. O replay normal usa o catálogo atual, não seleciona automaticamente uma versão histórica. Backup testado é a recuperação se a origem já não estiver disponível. Não reenumerar SKs ou apagar o histórico para corrigir grafia.
 
-## 6. Armazenamento versão 3.0
+## 6. Armazenamento versão 3.1
 
-PostgreSQL contém **somente gold_projeto_status**. A migração exclui fisicamente as outras 19 tabelas. Bronze/Prata/controle/revisões continuam como coleções privadas compactadas em `/app/runtime/pipeline_state_orcamento_18429499488.sqlite3`, usando os contratos abaixo. Não criar outro schema técnico.
+PostgreSQL contém **somente gold_projeto_status e pendencias_projeto**. As 19 tabelas técnicas foram excluídas; a segunda tabela pública foi autorizada depois, para revisão. Bronze/Prata/controle/revisões continuam como coleções privadas compactadas em `/app/runtime/pipeline_state_orcamento_18429499488.sqlite3`, usando os contratos abaixo. Não criar outro schema técnico.
 
-O volume é obrigatório. `db/consumer.py` implementa publicação e migração; `db/checkpoint.py` faz gravação durável e recuperação por recibo. O recibo da geração publicada fica no comentário da Gold, atualizado no mesmo commit que suas linhas. PK, UNIQUE, CHECKs e índice único da última passagem são PostgreSQL; referências entre coleções são validadas em Python.
+O volume é obrigatório. `db/consumer.py` implementa publicação e migração; `db/checkpoint.py` faz gravação durável e recuperação por recibo. O recibo da geração publicada fica no comentário da Gold, atualizado no mesmo commit que as duas tabelas públicas. PK, UNIQUE, CHECKs e índice único da última passagem são PostgreSQL; referências entre coleções são validadas em Python.
 
 Inventário **lógico interno**, não inventário de tabelas do banco:
 
 | Tabela | Informação e finalidade |
 |---|---|
-| `gold_projeto_status` | Saída única de indicadores: passagens elegíveis, tempos fechados e atributos |
+| `gold_projeto_status` (coleção interna) | Evidência completa das passagens elegíveis; a projeção pública de 33 campos mascara as estimativas |
 | `quarentena_projeto` (coleção interna) | Fila de saneamento: projeto, nomes originais, motivos e versão; não entra nos KPIs |
 | `bronze_monday_activity_log_raw` | Eventos originais; deduplicação por ID e reconstrução do histórico |
 | `bronze_monday_item_snapshot_raw` | Cadastros/estado observados por item e data; origem de atributos e exclusões |

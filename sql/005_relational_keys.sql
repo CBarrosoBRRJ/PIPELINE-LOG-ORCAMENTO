@@ -1,6 +1,6 @@
--- PostgreSQL v3: reference uniqueness only. Internal references are validated in Python.
+-- PostgreSQL 3.1: reference uniqueness only. Internal references are validated in Python.
 
--- Legacy migration: sla-pipeline migrate-single-table. Never recreate technical tables.
+-- Legacy migration: sla-pipeline migrate-consumption. Never recreate technical tables.
 
 DO $$ BEGIN
   IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='uq_gold_projeto_ordem'

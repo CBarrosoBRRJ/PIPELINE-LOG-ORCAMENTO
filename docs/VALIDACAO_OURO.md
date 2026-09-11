@@ -1,3 +1,23 @@
+# Validação 3.1.0 — consumo direto e pendências
+
+Ensaio concluído em 11/09/2026, 22:09 UTC, antes da publicação da nova versão na VPS. **112 testes passaram** (incluindo PostgreSQL local), Ruff e verificação de diff passaram. Imagem Docker 3.1.0 construída.
+
+Backup PostgreSQL `runtime/backups/before_people_fix_20260911T215010Z.dump`, 490.052 bytes, restaurado em PostgreSQL 17 isolado: 3.330 linhas, 2.822 projetos, 3.330 IDs únicos. Checkpoint copiado do ensaio anterior, reconciliado com a Gold atual, e pareado ao recibo do banco restaurado. Backup adicional do estado real observado na VPS: `/app/runtime/backups/state_20260911T221143Z.sqlite3`.
+
+No restore, migrate-consumption, replay, validate, validate-gold, quality-profile e health concluíram com sucesso. Inventário: gold_projeto_status e pendencias_projeto. Gold preservou 3.330 passagens/2.822 projetos; 511 trechos têm início comprovado e duração publicada. As 2.819 estimativas tiveram entrada/duração mascaradas como NULL no contrato público. Nenhuma mensagem de usuário excluído foi mantida como nome de responsável.
+
+Pendências: 4.560 projetos únicos, sendo 1.738 excluídos da Gold e 2.822 com avisos não bloqueantes, principalmente história inicial incompleta. Isso não significa 4.560 projetos inválidos. Ambos os conjuntos usam o corte 11/09/2026 00:00 São Paulo; regra 2.2.1:88ed5c2b27f7f472. Replay não consultou Monday nem avançou watermark.
+
+Hashes esperados no mesmo corte após implantação:
+- Gold pública: `334e346b66936b923dc6fcda4777f22f4933d3ed888d0459b4540f6595a2d939`.
+- Pendências: `acedaa3c45ef61129a5c3da6bc030a9fdc36cecad042139b0f5279f9cae9a171`.
+
+Evidências privadas: runtime/v31_rehearsal_verified.json, runtime/people_fix_backup_verified.json. Publicação na VPS será registrada abaixo após verificação real. PBIX/HTML não foram editados; documentação e SQL prontos para importar os campos atualizados.
+
+---
+
+## Registros anteriores — inventários e regras históricos
+
 # Validação — tabela única 3.0
 
 ## Preparação observada em 11/09/2026
