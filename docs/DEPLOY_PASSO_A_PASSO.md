@@ -1,3 +1,5 @@
+> **Referência histórica anterior à arquitetura 3.0.** PostgreSQL agora contém somente `orcamento.gold_projeto_status`; tabelas auxiliares/relações SQL descritas abaixo foram retiradas. Não executar instruções antigas de criação/consulta dessas tabelas. Consulte o [PRD atual](../PRD.md) e a operação 3.0. Conceitos de identidade, nulabilidade e qualidade permanecem aplicáveis.
+
 # Implantação passo a passo — GitHub, EasyPanel e VPS
 
 Atualizado em 11/09/2026. **Para a instalação existente no EasyPanel, siga [PROMPT_CLAUDE_EASYPANEL.md](PROMPT_CLAUDE_EASYPANEL.md): já há um executor, não criar outro nem instalar cron adicional.** O roteiro SSH/Compose abaixo é uma alternativa de instalação manual. Este documento acompanha [OPERATIONS.md](../OPERATIONS.md). Banco existente: `dados_globo.orcamento`; não é necessário criar outro banco ou recarregar tudo.

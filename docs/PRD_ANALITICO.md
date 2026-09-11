@@ -1,3 +1,5 @@
+> **Referência histórica anterior à arquitetura 3.0.** PostgreSQL agora contém somente `orcamento.gold_projeto_status`; tabelas auxiliares/relações SQL descritas abaixo foram retiradas. Não executar instruções antigas de criação/consulta dessas tabelas. Consulte o [PRD atual](../PRD.md) e a operação 3.0. Conceitos de identidade, nulabilidade e qualidade permanecem aplicáveis.
+
 # PRD analítico — permanência por etapa e gargalos
 
 **Versão 2:** o consumo principal passou para [gold_projeto_status](OURO_CONSUMO.md). As 16 tabelas descritas abaixo permanecem técnicas/legadas; acrescentamos Gold, catálogo de identidades e snapshot de regras (19 tabelas). Não usar as views antigas, sem as novas exclusões, como se fossem o mesmo conjunto de projetos da Gold.

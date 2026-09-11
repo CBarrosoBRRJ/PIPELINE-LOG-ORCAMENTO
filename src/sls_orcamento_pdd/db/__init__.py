@@ -3,6 +3,6 @@ def get_store(settings):
         from .bq import BigQueryStore
 
         return BigQueryStore(settings)
-    from .postgres import PostgresStore
+    from .consumer import ConsumerStore
 
-    return PostgresStore(settings)
+    return ConsumerStore(settings)

@@ -299,9 +299,9 @@ class BigQueryStore:
 
 
 def export_postgres(settings):
-    from .postgres import PostgresStore
+    from .consumer import ConsumerStore
 
-    source, target = PostgresStore(settings), BigQueryStore(settings)
+    source, target = ConsumerStore(settings), BigQueryStore(settings)
     target.initialize()
     with source.lock(), target.lock():
         payload = {name: source.read(name, settings.monday_board_id) for name in DEFINITIONS}

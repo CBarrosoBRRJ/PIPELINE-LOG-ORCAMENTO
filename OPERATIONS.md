@@ -1,122 +1,62 @@
-# Operação — versão 2.2.0
+# Operação — executor 3.0 e PostgreSQL com uma tabela
 
-O procedimento atual está detalhado em [PRD_ELT_REGRAS.md](docs/PRD_ELT_REGRAS.md). Uma tentativa às 06h de São Paulo, sem carga ao iniciar o loop. Corte dos tempos à meia-noite local (D+1); cadastro observado na coleta com data de referência. Gold e quarentena são publicadas juntas. Reserva diária em `etl_run` impede repetir a mesma data após reinício/falha. `daily` manual também usa a reserva; recuperação excepcional usa `backfill` ou `replay`, conforme a causa.
+## Destino e agenda
 
-## Atualização Gold 2.2
+Banco `dados_globo`, schema `orcamento`, **somente `gold_projeto_status`**. Aplicação EasyPanel `pipeline-orcamento`, repositório `CBarrosoBRRJ/PIPELINE-LOG-ORCAMENTO`, branch `main`, Dockerfile na raiz, comando vazio (CMD loop), **uma réplica**, deploy stop-first. O volume `runtime` precisa estar montado em `/app/runtime`, gravável por UID 10001.
 
-`daily`, `backfill` e `replay` agora publicam também `gold_projeto_status`, com catálogo `meta_entity_mapping` e snapshots imutáveis `meta_gold_rule_snapshot`. A migração é aditiva; não remover as tabelas antigas nem resetar watermark. O Power BI novo importa uma tabela. Consulte [o contrato de consumo](docs/OURO_CONSUMO.md) e [a validação](docs/VALIDACAO_OURO.md).
+Ambiente: preservar segredos; `PG_SCHEMA=orcamento`, `PG_DB=dados_globo`, host interno `banco_de_dados_postgres-pipeline`, porta 5432; `MONDAY_BOARD_ID=18429499488`, `MONDAY_STATUS_COLUMN_ID=status_19`, `INITIAL_STATUS_LABEL=Entrada`, finais aprovados, `PREFERRED_TIMEZONE=America/Sao_Paulo`, `CRON_SCHEDULE=0 6 * * *`. Não imprimir o ambiente. PostgreSQL local de testes usa outro banco/schema e porta 55432.
 
-Após atualizar o código, executar `sla-pipeline replay` se for necessário publicar sem consultar a API/avançar corte; depois `sla-pipeline validate`, `sla-pipeline validate-gold` e `sla-pipeline quality-profile`. Com a carga diária atualizada, isso ocorre automaticamente. Não disputar execução com o loop; ele usa lock por quadro.
+`loop` espera o próximo horário futuro, sem carga na subida. A reserva diária tem ID determinístico e fica no checkpoint privado; uma tentativa por data, inclusive se falhar. Sem repetição automática ou catch-up após reinício. API/VPS indisponível exige diagnóstico e recuperação deliberada, não criação de outro cron.
 
-O replay não comprova deploy do agendador. Conferir a versão no painel e os campos `gold_rules_version`, `gold_projects` e `gold_excluded_projects` nos logs/`etl_run.metrics` da execução remota. Um executor antigo não atualiza a Gold. Para corrigir identidades, editar o catálogo conforme o guia e reprocessar fora de uma carga em andamento; não editar linhas da Gold manualmente.
+O corte da Gold é meia-noite local, anterior à coleta das 06h. Watermark marca a coleta; não confundir timestamps. Atualizar Power BI após conclusão observada, exibindo `corte_local`.
 
-## PostgreSQL existente na VPS (configuração atual)
+## Migração autorizada de 20 para 1 tabela
 
-Banco `dados_globo`, schema **`orcamento`**, PostgreSQL 17.11. Existe apenas uma área de dados deste pipeline. Os nomes anteriores foram consolidados com backup testado; não criar outro banco.
+1. Finalizar extrações/deploys concorrentes; confirmar volume persistente e versão 3.0.
+2. Fazer pg_dump completo e testar pg_restore isolado. Este passo precisa ser observado antes da exclusão.
+3. No **container da VPS** com o volume, executar `sla-pipeline migrate-single-table`.
+4. O comando trava o quadro, exige inventário legado exato e um único quadro; lê todas as coleções consistentemente, valida contratos/referências/Gold e salva checkpoint durável.
+5. Reabre o checkpoint e compara o conteúdo completo; cria cópia `.before_migration.sqlite3` no volume. Trava as tabelas e confirma que não mudaram durante a preparação.
+6. Na mesma transação, remove FKs da Gold para tabelas retiradas, aplica CHECKs/índice de unicidade e remove **as 19 tabelas auxiliares**, sem CASCADE. Dependência externa desconhecida aborta tudo. Gold mantém suas linhas e chaves.
+7. Grava o recibo no comentário da Gold e confirma a transação. Promove checkpoint e verifica inventário igual a uma tabela. Repetir a migração já concluída não exclui nada adicional.
 
-A aplicação existente no EasyPanel executa `sla-pipeline loop`: espera o próximo horário das **06h America/Sao_Paulo**, com `CRON_SCHEDULE=0 6 * * *`. Manter uma réplica, sem cron adicional. O corte dos tempos é meia-noite local; coleta e cadastro têm timestamps próprios. Não disparar carga extra para validar um deploy: use os comandos de leitura e confira `loop_sleeping`.
+Nunca apagar as 19 tabelas manualmente antes desse comando. Não aplicar antigos DDLs relacionais ou retornar à imagem 2.x: dependem de estruturas que deixaram de existir. A inicialização atual não recria auxiliares.
 
-Siga [o prompt de conferência do EasyPanel](docs/PROMPT_CLAUDE_EASYPANEL.md) e [o aceite provisório](docs/ACEITE_PROVISORIO.md). Configure `PG_DB=dados_globo`, `PG_SCHEMA=orcamento`, host interno e porta 5432 na aplicação; preserve as credenciais. A compatibilidade temporária do código converte `PG_SCHEMA=orcamentos` para `orcamento`, mas o painel deve usar o nome correto explicitamente. Não retornar a um código anterior à consolidação com a variável antiga.
-
-Para comandos avulsos com Compose remoto, mantenha `COMPOSE_FILE=compose.remote.yaml`, `PG_DSN` vazio e rede interna real configurada. Esse Compose não cria um banco. Não executar carga manual enquanto a aplicação já está processando; o lock por quadro protege contra concorrência.
-
-Para acesso externo, a conexão testada estava sem TLS. A execução no servidor deve usar a rede interna; acesso remoto administrativo/BI requer túnel/VPN ou configuração TLS validada. `PG_SSLMODE=prefer` permite conexão sem TLS; `verify-full` exige endpoint/certificado compatíveis. As chaves `VPS_PG_*` são referências de endpoints, e `LOCAL_PG_*` preservam a origem: apenas `PG_*`/`PG_DSN` controlam o destino ativo.
-
-## Preparar uma instalação nova com PostgreSQL próprio
-
-Esta seção é uma alternativa para ambiente novo, com `COMPOSE_FILE=compose.yaml`. Não se aplica ao banco existente acima.
-
-### Preparação
-
-Pré-requisitos: Linux, Docker Engine com Compose v2, acesso HTTPS à API Monday, espaço para volume PostgreSQL, backups e snapshots. Reserve inicialmente 2 vCPU/4 GB RAM e acompanhe o crescimento. O MVP reconstrói os derivados do board a cada execução; a extração de eventos é incremental.
-
-1. Coloque o projeto em `/opt/sls_orcamento_pdd` (incluindo o `.env`, por canal seguro). Use somente um `.env`. Não copie `.venv`, `runtime` ou senhas para Git.
-2. Escolha `PG_USER`, `PG_PASSWORD` forte e `PG_DB=sla_workflow` antes de criar o volume. O Compose cria automaticamente o banco e o usuário na primeira inicialização.
-3. Mantenha `PG_DSN` vazio no deploy com Compose. Dentro do container, `PG_HOST=postgres` e `PG_PORT=5432` são definidos pelo Compose; na máquina host, o `.env` usa a porta externa 55432.
-4. O estado do container usa o volume Docker `runtime_data`, com permissão do usuário da aplicação:
+## Validação no executor
 
 ```bash
-cd /opt/sls_orcamento_pdd
-chmod 600 .env
-mkdir -p runtime logs
-docker compose up -d postgres
-docker compose --profile job build pipeline
-docker compose --profile job run --rm pipeline discover
-docker compose --profile job run --rm pipeline backfill
-docker compose --profile job run --rm pipeline validate
-docker compose --profile job run --rm pipeline health
+sla-pipeline check-db
+sla-pipeline validate
+sla-pipeline validate-gold
+sla-pipeline quality-profile
+sla-pipeline export-review
+sla-pipeline health
 ```
 
-O PostgreSQL usa volume persistente. **Não execute `docker compose down -v`**: isso remove o volume. Trocar a senha no `.env` depois de criar o volume não altera a senha dentro do PostgreSQL; faça rotação via `ALTER ROLE` e então atualize o arquivo.
+`check-db` deve listar apenas `gold_projeto_status`. `validate` reconcilia coleções internas; `validate-gold` lê a Gold real e compara com o checkpoint e as regras; `quality-profile` inspeciona os 20 contratos lógicos (não 20 tabelas PostgreSQL). `health` confere Gold/checkpoint, watermark com execução bem-sucedida correspondente, atraso e tentativas posteriores. Tentativa antiga não agendada bloqueada exclusivamente por concorrência aparece como `warnings: [concurrent_attempt_rejected]`; seu registro não é apagado nem convertido em sucesso. Falha real posterior ou reserva diária sem sucesso mantém health em erro. Uma migração/replay não é nova extração Monday.
 
-## Alternativa: cron Linux (não usar junto com o loop)
+DBeaver/VS Code Python podem consultar a Gold diretamente. Use [SQL de validação](sql/011_validar_consumo.sql) e [trajetória de projeto](sql/006_analise_projeto.sql). Depois da remoção, clique Atualizar/F5 na pasta Tabelas e feche abas de objetos antigos. No Power BI, substitua consultas antigas pela única Gold.
+
+## Estado privado e recuperação
+
+Arquivo: `/app/runtime/pipeline_state_orcamento_18429499488.sqlite3`. Contém registros lógicos compactados de Bronze, derivados, identidades, quarentena, regras, watermark e execuções. Não é um serviço adicional nem requer acesso do Power BI. O comentário da Gold identifica qual geração desse arquivo foi publicada.
+
+Antes de publicar, o checkpoint candidato é gravado com transação SQLite e sincronização FULL. A Gold inteira do quadro e o recibo mudam juntos em transação PostgreSQL. Após confirmação, o candidato é promovido. Se o processo morrer entre confirmação e promoção, o recibo permite recuperar o candidato correto no reinício. Se PostgreSQL reverter, o estado anterior continua válido. Um volume ausente/incompatível bloqueia a publicação.
+
+Para backup do estado sem copiar um arquivo aberto de forma insegura:
 
 ```bash
-bash scripts/setup_cron.sh
-crontab -l
+sla-pipeline backup-state
 ```
 
-Para instalações que escolherem cron em vez do loop, o script instala uma única linha marcada `sls_orcamento_pdd`, preservando outras tarefas. `CRON_SCHEDULE="0 6 * * *"` significa 06h **no timezone do servidor**. Confira com `timedatectl`; em servidor UTC, 06h corresponde a 03h em São Paulo. `PREFERRED_TIMEZONE` controla as datas analíticas e não modifica o relógio do cron. O usuário do cron precisa de acesso ao Docker e ao diretório `logs`.
+O comando usa SQLite backup API sob o lock do quadro e grava `/app/runtime/backups/state_<UTC>.sqlite3`. Copiar esse artefato e o dump PostgreSQL para armazenamento externo controlado. Para um par restaurável: fora da janela de carga, pausar o agendador, gerar backup-state e pg_dump, guardar juntos com data/versão; só então retomar o agendador. Verificar o par em ambiente isolado com `validate-gold`. Não executar cron/carga no ambiente de restore.
 
-`run_daily.sh` aplica `flock` e o PostgreSQL aplica advisory lock por board. O lock de banco é liberado automaticamente se a sessão cair. Não agendar backfill adicional. Use-o manualmente se precisar recuperar eventos publicados com atraso maior que a sobreposição.
+Se perder o arquivo runtime, a Gold continua consultável, mas o pipeline deve parar até restaurar o checkpoint correspondente. **O dump PostgreSQL pós-migração sozinho não contém o histórico bruto.** Os dumps anteriores à migração preservam as antigas tabelas e permitem reconstruir o checkpoint em ambiente isolado. Não sobrescrever o banco atual com um restore sem conferir destino e plano de retorno.
 
-## Conferir cada execução
+Revisões de identidade: [guia](docs/QUARENTENA_E_IDENTIDADES.md). `replay` recalcula com fontes já guardadas, sem API e sem avançar watermark. `backfill` é exceção manual para buscar histórico disponível na API; nunca substitui backup do estado antigo.
 
-- No EasyPanel, logs da aplicação; no modo cron, `logs/daily.log`: eventos, duração e contagens.
-- `/app/runtime/status_<board_id>.json` no volume `runtime_data`: último resultado, gravado por substituição atômica. Em execução Python local, fica na pasta `runtime/`.
-- `orcamento.etl_run`: sucessos e reservas diárias `running`/`failed`, com data e métricas. Uma reserva não é prova de sucesso.
-- `orcamento.etl_watermark`: referência da última coleta publicada. O corte analítico está na Gold.
-- `orcamento.data_quality_issue`: ausência de histórico, status vazio, divergências, itens ausentes.
+## Limites operacionais
 
-Para ler o estado do container: `docker compose --profile job run --rm --entrypoint cat pipeline /app/runtime/status_18429499488.json`. Os estados de execuções Python locais e Docker ficam em locais distintos; use um único modo no cron.
+Não há alerta externo contratado nem backup externo recorrente comprovado. TLS/firewall/2FA seguem o aceite provisório. Nenhuma porta/permissão é aberta por esta migração. Para BigQuery será preciso migrar também evidências/controle ou redesenhar esse estado em armazenamento corporativo; não apenas copiar a Gold e descartar o histórico.
 
-No `loop`, falhas ficam nos logs/arquivo de estado e o processo espera o próximo ciclo diário. Isso não dispara notificação externa; `health` deve ser acompanhado. Em comando avulso, falha retorna código não zero. Não são gravadas como sucesso no banco. Monitore exit code e idade do arquivo; `health` falha após `RUN_WINDOW_HOURS + 2` horas ou se o último status não for sucesso. As contagens de inseridos são calculadas contra o estado anterior sob lock; `upserted_existing_events` conta IDs já existentes, não necessariamente valores alterados.
-
-Copie `scripts/logrotate.conf` para `/etc/logrotate.d/sls-orcamento-pdd`, ajustando caminho e `su` ao usuário que executa o cron. Backups não substituem retenção dos logs da origem.
-
-## Backup e recuperação
-
-`scripts/backup.sh` detecta o Compose selecionado: banco próprio usa o serviço `postgres`; banco existente usa o serviço opcional `backup` (cliente PostgreSQL 17, somente `PG_SCHEMA`). O dump só recebe o nome final após sucesso; arquivos `.partial` indicam backup incompleto. `PG_DSN` deve estar vazio no modo remoto.
-
-Para o modo remoto: `bash scripts/backup.sh`. Restaure pelo painel ou com `pg_restore --no-owner --no-privileges` conectado a um **banco vazio separado**, usando um cliente da mesma versão ou mais recente. Não restaure sobre `dados_globo` para testar.
-
-O exemplo de restore abaixo é exclusivo do modo com banco próprio (`compose.yaml`):
-
-```bash
-bash scripts/backup.sh
-# Para copiar dados locais para a VPS, transfira o .dump por canal seguro.
-# Restaurar SOMENTE em banco novo/vazio; sem --clean e sem DROP:
-docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-privileges' < runtime/backups/ARQUIVO.dump
-docker compose --profile job run --rm pipeline validate
-```
-
-Teste a restauração num banco separado e mantenha uma cópia fora da VPS. Após restaurar, confira a reserva diária. Recuperação manual pode usar `backfill`; o loop espera o próximo horário, e `daily` não repete data reservada.
-
-## Troubleshooting
-
-| Sintoma | Ação |
-|---|---|
-| Monday 401/403 | Verifique o token no `.env` e acesso ao board; não cole token em logs |
-| Coluna não encontrada | Execute `discover`; ajuste `MONDAY_STATUS_COLUMN_ID` ou overrides |
-| Títulos ambíguos | Defina o ID em `BUSINESS_COLUMNS_OVERRIDE` |
-| Timeout/TLS no Windows | Use `MONDAY_HTTP_TRANSPORT=curl`; mantenha certificados verificados |
-| Complexity/rate limit | A retentativa respeita espera indicada; reduza tamanho de página se persistir |
-| Contagem de itens mudou durante leitura | Reexecute; snapshot é paginado, a origem não oferece transação de leitura |
-| Falha após ler páginas | Watermark e tabelas ficam no último commit; corrigir causa e recuperar manualmente. `daily` não repete data reservada |
-| Correção da lógica sem reler API | `replay`, seguido de `validate` |
-| Histórico anterior ausente | Verifique criação/cópia do board, retenção do plano e permissões; não inferir transições como fatos |
-| Cliente nulo | Coluna não existe no quadro atual; configure uma fonte quando disponível |
-| Falha ao gravar runtime | Confirme o volume `runtime_data` e proprietário UID 10001 |
-
-## Power BI e credenciais de leitura
-
-No modo local com banco próprio, o banco está publicado apenas em loopback. Na VPS atual existe porta externa; restrinja o acesso ao configurar o servidor. Use túnel SSH/VPN ou gateway perto da VPS para o Power BI. Para teste via túnel: `ssh -L 55432:127.0.0.1:55432 usuario@VPS`. O comando precisa do host/usuário reais; ajuste as portas ao endpoint real do banco.
-
-Crie um papel dedicado de leitura ao configurar BI; conceda `USAGE ON SCHEMA orcamento`, `SELECT ON orcamento.gold_projeto_status`. Conceder acesso à quarentena apenas a quem revisará cadastros. Não use a conta administrativa do ETL no compartilhamento do relatório. O pipeline trata pessoas como atribuições do projeto, não como prova de quem causou a demora.
-
-
-## Evolução de contratos e nulos
-
-Antes de uma atualização de obrigatoriedade, rode `quality-profile` com o código novo e faça backup. Campos requeridos passam a NOT NULL em `init-db`; uma linha legada incompatível aborta a migração sem inventar um preenchimento. O contrato portátil também verifica tipo, identidade, domínio e duração antes de publicar. Depois, `replay` aplica a limpeza a derivados no mesmo corte; `validate` confere durações. A Bronze continua preservada.
-
-Regenerar artefatos ao alterar contrato/metadata: `python scripts/generate_ddl.py` e `python scripts/generate_contract_docs.py`. Leia [ARQUITETURA_E_GOVERNANCA.md](docs/ARQUITETURA_E_GOVERNANCA.md). O perfil lê um snapshot consistente das tabelas em memória no MVP; adequar para validação por lote/agregação SQL em volumes maiores.
+Referências técnicas: [DROP TABLE / RESTRICT](https://www.postgresql.org/docs/17/sql-droptable.html), [transações SQLite](https://www.sqlite.org/atomiccommit.html). O protocolo de recibo entre os dois armazenamentos é implementado e testado neste projeto; não é uma transação distribuída nativa.

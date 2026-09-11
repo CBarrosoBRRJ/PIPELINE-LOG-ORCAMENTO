@@ -1,3 +1,5 @@
+> **Aplicação 3.0:** o banco tem fisicamente apenas `orcamento.gold_projeto_status`. Consultas/relacionamentos antigos devem ser retirados do PBIX. Quarentena é relatório privado CSV fora do banco; detalhes no guia de revisão.
+
 # Power BI — modelo atual de consumo
 
 Versão 2.2.0. O modelo antigo de sete tabelas foi substituído. A tabela de indicadores é **`orcamento.gold_projeto_status`**. O guia completo dos campos está em [OURO_CONSUMO.md](OURO_CONSUMO.md); as regras e o corte em [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md).
@@ -53,7 +55,7 @@ Filtros de período precisam ter significado: entrada na etapa, saída ou corte 
 3. Marca: esperas separadas, ranking e tamanho de amostra.
 4. Talento: espera de validação e projetos que compõem o resultado.
 5. Gargalos e retornos: status × tempo, retorno × tempo total por projeto, volume × mediana.
-6. Saneamento: opcionalmente importar `orcamento.quarentena_projeto` como tabela independente para acompanhar pendências.
+6. Saneamento: acompanhar o CSV privado `projetos_quarentena.csv` exportado pelo executor. Não existe tabela adicional de saneamento no PostgreSQL.
 
 A quarentena não compõe KPIs de projetos elegíveis e não deve ser unida às passagens. Não misturar contagens da fila de saneamento com o volume da Gold sem considerar o corte. Guia: [QUARENTENA_E_IDENTIDADES.md](QUARENTENA_E_IDENTIDADES.md).
 

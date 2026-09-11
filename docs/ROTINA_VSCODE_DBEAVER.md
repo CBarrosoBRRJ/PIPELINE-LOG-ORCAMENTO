@@ -1,3 +1,5 @@
+> **Referência histórica anterior à arquitetura 3.0.** PostgreSQL agora contém somente `orcamento.gold_projeto_status`; tabelas auxiliares/relações SQL descritas abaixo foram retiradas. Não executar instruções antigas de criação/consulta dessas tabelas. Consulte o [PRD atual](../PRD.md) e a operação 3.0. Conceitos de identidade, nulabilidade e qualidade permanecem aplicáveis.
+
 # Rotina de trabalho pelo VS Code e DBeaver
 
 Preferência confirmada em 11/09/2026: desenvolver e analisar pelo VS Code/Python e pelo DBeaver, sem depender de abrir o terminal da VPS na rotina.

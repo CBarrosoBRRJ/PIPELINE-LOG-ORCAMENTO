@@ -14,14 +14,15 @@ def main():
         f"Versão {CONTRACT_VERSION}. Fonte: `models/schemas.py` e `models/contracts.py`.",
         "Regenerar com `python scripts/generate_contract_docs.py`.",
         "",
-        "Significado de negócio das tabelas: [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md).",
+        "PostgreSQL v3 contém SOMENTE gold_projeto_status. Os outros nomes abaixo são coleções internas do checkpoint no volume runtime, não tabelas PostgreSQL.",
+        "Significado de negócio das coleções: [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md).",
         "Política de nulos e tratamento: [ARQUITETURA_E_GOVERNANCA.md](ARQUITETURA_E_GOVERNANCA.md).",
         "",
         "`id`: inteiro positivo de 64 bits; `text`: texto; `time`: timestamp com fuso;",
         "`date`: data; `num`: número finito não negativo; `bool`: booleano; `json`: objeto/lista.",
         "`localtime`: data/hora local sem fuso, para apresentação; referência temporal continua em UTC.",
         "Campos opcionais aceitam NULL. Campos obrigatórios não aceitam NULL e textos obrigatórios não aceitam vazio.",
-        "SKs são calculadas antes da gravação; devem corresponder ao ID original. A obrigatoriedade de SK dimensional é imposta pelo banco.",
+        "SKs são calculadas antes da gravação e validadas contra o ID original; referências internas são verificadas em Python.",
     ]
     references = {
         (child, column): f"{parent}.{target}" for child, column, parent, target in foreign_keys()

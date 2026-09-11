@@ -1,3 +1,5 @@
+> **Referência histórica anterior à arquitetura 3.0.** PostgreSQL agora contém somente `orcamento.gold_projeto_status`; tabelas auxiliares/relações SQL descritas abaixo foram retiradas. Não executar instruções antigas de criação/consulta dessas tabelas. Consulte o [PRD atual](../PRD.md) e a operação 3.0. Conceitos de identidade, nulabilidade e qualidade permanecem aplicáveis.
+
 # Prévia — pipeline em código e uma tabela para consumo
 
 Estado: prévia histórica aprovada pelo usuário e implementada na versão 2. Para o contrato final, os campos efetivos e as limitações, leia [OURO_CONSUMO.md](OURO_CONSUMO.md); para publicação e testes, [VALIDACAO_OURO.md](VALIDACAO_OURO.md). Nenhuma tabela técnica foi removida. O texto abaixo preserva a proposta anterior, inclusive itens cujo nome mudou ou que permaneceram futuros.

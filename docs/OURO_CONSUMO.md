@@ -1,4 +1,4 @@
-# Gold para consumo — guia da versão 2
+# Gold para consumo — aplicação 3.0
 
 Contrato executável 2.2.0. Tabela principal: **`dados_globo.orcamento.gold_projeto_status`**. Código: `services/gold.py`, chamado tanto por `daily/backfill` como por `replay`. Consulte [VALIDACAO_OURO.md](VALIDACAO_OURO.md) para evidências de publicação. A [prévia](PREVIA_OURO_CONSUMO.md) registra as decisões anteriores; este guia descreve a implementação.
 
@@ -52,7 +52,7 @@ A detecção textual não reconhece automaticamente todas as combinações poss�
 
 Marca/Talento vazio não exclui automaticamente um projeto. Campo desconhecido permanece nulo. Sem histórico completo, as passagens ficam identificadas como inferidas e não entram na comparação de tempos observados.
 
-Identidade de Interveniência pendente e grafias explicitamente classificadas como `quarantined` também separam o projeto inteiro. A tabela `quarentena_projeto` reúne os nomes originais e motivos, uma linha por projeto. Correção/revisão permite reinclusão na próxima publicação. Guia: [QUARENTENA_E_IDENTIDADES.md](QUARENTENA_E_IDENTIDADES.md).
+Identidade de Interveniência pendente e grafias explicitamente classificadas como `quarantined` também separam o projeto inteiro. O relatório privado `projetos_quarentena.csv` reúne os nomes originais e motivos, uma linha por projeto. Correção/revisão permite reinclusão na próxima publicação. Guia: [QUARENTENA_E_IDENTIDADES.md](QUARENTENA_E_IDENTIDADES.md).
 
 Todos os indicadores da Gold abrangem **somente os projetos elegíveis**, incluindo fila, totais e indicadores de Marca. Projetos excluídos continuam nas camadas técnicas. Uma correção no Monday ou nas regras pode reincluir seu histórico na próxima carga. Assim, números históricos podem mudar com correções; corte e versão tornam essa mudança auditável.
 
@@ -70,19 +70,11 @@ Limpeza: Unicode NFC, espaços repetidos, vazios → nulo. A chave de comparaç�
 | Talento `pendente_revisao` | Texto de Interveniência ainda sem identidade individual aprovada; o projeto inteiro vai para `quarentena_projeto`, fora da Gold |
 | `ausente` | Campo não informado |
 
-`meta_entity_mapping` é a tabela técnica de revisão, no grão quadro + tipo de entidade + chave do texto original. O pipeline descobre candidatos pendentes, mas **não sobrescreve aprovações humanas**. Fonte e nome original permanecem disponíveis. `canonical_id` é um identificador estável escolhido uma vez, por exemplo UUID; não deve depender de futuras alterações no nome.
+`meta_entity_mapping` é a coleção interna de revisão no checkpoint, no grão quadro + tipo de entidade + chave do texto original. O pipeline descobre candidatos pendentes, mas **não sobrescreve aprovações humanas**. Fonte e nome original permanecem disponíveis. `canonical_id` é um identificador estável escolhido uma vez, por exemplo UUID; não deve depender de futuras alterações no nome.
 
-Para corrigir um nome no DBeaver:
+Para revisar nomes, exportar/importar o catálogo pelo executor: [QUARENTENA_E_IDENTIDADES.md](QUARENTENA_E_IDENTIDADES.md). Essas coleções não existem mais no PostgreSQL. Corrigir o Monday e aguardar a coleta diária; para revisões do catálogo, importar o JSON revisado e executar replay. O Power BI/DBeaver consulta somente a Gold.
 
-1. Abrir `orcamento.meta_entity_mapping`, filtrar `entity_type` (`marca` ou `talento`) e localizar `source_text`.
-2. Conferir com o cadastro/equipe se representa a mesma identidade. Não aprovar nomes parecidos sem confirmação.
-3. Definir `canonical_id`, `canonical_name`, `entity_kind` (`person`, `organization` ou `collective`), `reviewed_by`, `updated_at` e `review_status=approved`. Para várias grafias da mesma entidade, reutilizar exatamente o mesmo ID, nome e tipo canônicos. Não alterar PK/source_key para corrigir a exibição.
-4. Salvar a revisão fora de uma carga em andamento e rodar `sla-pipeline replay` pelo VS Code ou aguardar a próxima carga. `replay` não consulta Monday nem avança o corte.
-5. Executar `validate-gold`, conferir a nova versão e atualizar o Power BI.
-
-Aprovação incompleta ou definições conflitantes para o mesmo ID bloqueiam publicação. Para desfazer uma aprovação, mudar `review_status` para `pending` e reprocessar. Para corrigir ausência real, corrigir no Monday e executar a próxima carga; replay só conhece dados já coletados.
-
-`meta_gold_rule_snapshot` guarda de forma imutável o conteúdo das aprovações, mapeamentos e configuração de cada versão usada. `versao_regras` contém versão do código de regras + hash do conteúdo. Reconstruir uma versão antiga exige também código/fontes/corte correspondentes; o comando replay normal usa o catálogo atual.
+`meta_gold_rule_snapshot` (coleção privada) guarda de forma imutável o conteúdo das aprovações, mapeamentos e configuração de cada versão usada. `versao_regras` contém versão do código de regras + hash do conteúdo. Reconstruir uma versão antiga exige também código/fontes/corte correspondentes; o comando replay normal usa o catálogo atual.
 
 Não houve contratação de IA/NLP ou envio dos cadastros a terceiros. Grafias pendentes não são correções já realizadas.
 

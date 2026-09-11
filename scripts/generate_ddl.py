@@ -7,16 +7,17 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import AddConstraint, CreateIndex, CreateTable
 
 from sls_orcamento_pdd.db.bq import table_ddl
+from sls_orcamento_pdd.db.consumer import consumer_tables
 from sls_orcamento_pdd.db.postgres import postgres_views
 from sls_orcamento_pdd.models.schemas import define_tables
 
 
 def main():
     root = Path(__file__).resolve().parents[1] / "sql"
-    metadata, tables = define_tables()
+    metadata, tables = consumer_tables("orcamento")
     parts = [
-        "-- Generated from shared metadata. Additive DDL only.",
-        "CREATE SCHEMA IF NOT EXISTS sladb;",
+        "-- PostgreSQL v3: ONLY the consumption table. Use CLI init-db (new) or migrate-single-table (legacy) to pair executor state.",
+        "CREATE SCHEMA IF NOT EXISTS orcamento;",
     ]
     dialect = postgresql.dialect()
     for table in metadata.sorted_tables:
@@ -30,11 +31,13 @@ def main():
     # Kept only as a rollback reference; never executed by initialize().
     (root / "002_gold_views.sql").write_text(
         "-- LEGACY: rollback reference only. Current consumer: gold_projeto_status.\n"
-        + ";\n\n".join(postgres_views("sladb", "America/Sao_Paulo")) + ";\n", encoding="utf-8"
+        + ";\n\n".join(postgres_views("sladb", "America/Sao_Paulo"))
+        + ";\n",
+        encoding="utf-8",
     )
     migration = [
-        "-- Existing databases: run sla-pipeline init-db first. It adds/backfills UUIDv5 SKs transactionally without extensions.",
-        "-- Reference DDL for constraints after columns and UUIDv5 data migration. No tables are dropped.",
+        "-- PostgreSQL v3: reference uniqueness only. Internal references are validated in Python.",
+        "-- Legacy migration: sla-pipeline migrate-single-table. Never recreate technical tables.",
     ]
     constraints = []
     for table in tables.values():
@@ -50,15 +53,16 @@ def main():
         ddl = str(AddConstraint(constraint).compile(dialect=dialect))
         migration.append(f"""DO $$ BEGIN
   IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='{constraint.name}'
-                AND connamespace='sladb'::regnamespace) THEN
+                AND connamespace='orcamento'::regnamespace) THEN
     {ddl};
   END IF;
 END $$;""")
     (root / "005_relational_keys.sql").write_text("\n\n".join(migration), encoding="utf-8")
     bq_ddl = [
-        "-- Replace placeholders with .env values.",
+        "-- Future BigQuery adapter reference (not deployed); internal logical model, not current PostgreSQL inventory.",
         'CREATE SCHEMA IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}` OPTIONS(location="${BQ_LOCATION}");',
     ]
+    metadata, _ = define_tables()
     bq_ddl.extend(
         table_ddl("${BQ_PROJECT}.${BQ_DATASET}", t.name) + ";" for t in metadata.sorted_tables
     )

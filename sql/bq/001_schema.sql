@@ -1,4 +1,4 @@
--- Replace placeholders with .env values.
+-- Future BigQuery adapter reference (not deployed); internal logical model, not current PostgreSQL inventory.
 
 CREATE SCHEMA IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}` OPTIONS(location="${BQ_LOCATION}");
 

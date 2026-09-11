@@ -1,3 +1,5 @@
+> **Referência histórica anterior à arquitetura 3.0.** PostgreSQL agora contém somente `orcamento.gold_projeto_status`; tabelas auxiliares/relações SQL descritas abaixo foram retiradas. Não executar instruções antigas de criação/consulta dessas tabelas. Consulte o [PRD atual](../PRD.md) e a operação 3.0. Conceitos de identidade, nulabilidade e qualidade permanecem aplicáveis.
+
 # Padrão de arquitetura, qualidade e manutenção da equipe
 
 Versão 2.2.0 — 11/09/2026. Contrato executável: `models/contracts.py`, versão 2.2.0. Regras atuais e inventário: [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md); saneamento: [QUARENTENA_E_IDENTIDADES.md](QUARENTENA_E_IDENTIDADES.md). Este padrão complementa o [PRD](../PRD.md), o [dicionário analítico](PRD_ANALITICO.md) e o [contrato de campos](CONTRATOS_DE_DADOS.md).

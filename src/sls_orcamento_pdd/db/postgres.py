@@ -99,6 +99,12 @@ class PostgresStore:
 
     def initialize(self):
         with self.engine.begin() as conn:
+            marker = conn.scalar(
+                text("SELECT obj_description(to_regclass(:t),'pg_class')"),
+                {"t": f"{self.settings.pg_schema}.gold_projeto_status"},
+            )
+            if marker and '"storage": 3' in marker:
+                raise RuntimeError("Banco convertido para tabela única; use ConsumerStore")
             conn.execute(CreateSchema(self.settings.pg_schema, if_not_exists=True))
             self.metadata.create_all(conn)
             conn.execute(

@@ -1,4 +1,23 @@
-# Validação e publicação — versão 2.2.0
+# Validação — tabela única 3.0
+
+## Preparação observada em 11/09/2026
+
+- Backup `runtime/backups/before_gold_20260911T210739Z.dump` (6.834.280 bytes), fora do Git. Restore em PostgreSQL 17 isolado: 4.580 itens, 5.396 intervalos, 819 eventos brutos.
+- Imagem 3.0 construída. Ensaio da migração com dados reais restaurados, sem API Monday: **19 tabelas removidas**, inventário final **somente gold_projeto_status**, todas as coleções reconciliadas com o checkpoint antes da exclusão.
+- Gold preservada: **3.330 passagens / 2.822 projetos**. Fingerprint antes/depois `8d8ba8e5c6c126594a8a175253a07d7cb85d7f7e1a4a6caf453df23d9a3f9857`.
+- Na cópia: check-db, validate, validate-gold, quality-profile (zero falhas críticas), preview-gold, replay, nova validate-gold e export-review passaram. Quarentena interna: 1.738 projetos; catálogo: 1.983 entradas.
+- Corte preservado: 11/09 00:00 São Paulo; coleta 11/09 19:51:44.677066 UTC. Regra `2.2.0:88ed5c2b27f7f472`.
+- VPS antes da migração: volume `/app/runtime` montado e gravável, UID 10001. Health antigo sinalizava tentativa concorrente não agendada de 20:05 UTC; não foi feita extração extra para apagar esse alerta.
+
+Testes de integração usam somente PostgreSQL local e schemas isolados. Cobrem migração, rollback por dependência externa, preservação de registros, não recriação de auxiliares, unicidade, reserva diária entre processos, falha sem avanço do watermark, checkpoint ausente, recuperação após commit interrompido, revisão de catálogo e alteração externa da Gold.
+
+Suíte final: **103 testes passaram**; Ruff e `git diff --check` passaram. Conexões SQLite são fechadas explicitamente, inclusive nos caminhos de falha; o teste de perda de volume foi executado no Windows.
+
+## Aplicação 3.0 na VPS
+
+Pendente de registrar a execução remota após o push desta versão. O ensaio acima não é alegação de migração já concluída na VPS.
+
+## Registro histórico da publicação 2.2 (anterior à remoção das tabelas)
 
 Evidências observadas em 11/09/2026. Estes resultados validam o corte publicado; não são garantia de completude do histórico do Monday ou de execução futura.
 

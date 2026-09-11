@@ -25,12 +25,49 @@ def main():
             "export-bq",
             "check-db",
             "quality-profile",
+            "migrate-single-table",
+            "export-review",
+            "import-review",
+            "backup-state",
         ],
     )
+    parser.add_argument("--review-file")
     args = parser.parse_args()
     try:
         settings = load_settings(args.env_file)
-        if args.command == "discover":
+        if args.command in {
+            "migrate-single-table",
+            "export-review",
+            "import-review",
+            "backup-state",
+        }:
+            from .db.consumer import ConsumerStore
+            from .services.review import export_review, import_review
+
+            if settings.target_db != "postgres":
+                raise ValueError("Comando disponível para o executor PostgreSQL")
+            store = ConsumerStore(settings)
+            if args.command == "migrate-single-table":
+                emit("single_table_migration", **store.migrate())
+            elif args.command == "export-review":
+                emit("review_exported", **export_review(store, settings))
+            elif args.command == "backup-state":
+                from .utils.time import utcnow
+
+                with store.lock():
+                    store.read("etl_watermark")
+                    destination = (
+                        settings.runtime_dir
+                        / "backups"
+                        / ("state_" + utcnow().strftime("%Y%m%dT%H%M%SZ") + ".sqlite3")
+                    )
+                    store.checkpoint.backup(destination)
+                emit("state_backup", path=str(destination))
+            else:
+                if not args.review_file:
+                    raise ValueError("Informe --review-file com o catálogo revisado")
+                emit("review_imported", **import_review(store, settings, args.review_file))
+        elif args.command == "discover":
             from .clients.monday_client import MondayClient
             from .services.extract import discover
 
@@ -136,6 +173,12 @@ def main():
             validate(payload, sum(i["is_active"] for i in payload["dim_item"]))
             emit("validation_success", items=len(payload["dim_item"]))
         elif args.command == "health":
+            if settings.target_db == "postgres":
+                from .db import get_store
+                from .services.health import check_health
+
+                emit("health_ok", **check_health(get_store(settings), settings))
+                return 0
             from .utils.time import parse_timestamp, utcnow
 
             path = settings.runtime_dir / f"status_{settings.monday_board_id}.json"

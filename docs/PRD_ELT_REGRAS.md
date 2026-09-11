@@ -1,4 +1,7 @@
-# PRD de manutenção — pipeline e tabela de consumo
+# PRD da ELT — manutenção 3.0
+
+**Arquitetura atual:** código Python → checkpoint privado no volume → uma tabela PostgreSQL pronta. Regras/contrato 2.2.0 preservados; a migração de armazenamento não altera os cálculos. Comece pelo [PRD principal](../PRD.md) e siga o [procedimento de operação](../OPERATIONS.md).
+
 
 Versão 2.2.0 · 11/09/2026. Este é o mapa atual para implementar, revisar e operar regras. O [guia de consumo](OURO_CONSUMO.md) explica os campos e o Power BI; o [contrato gerado](CONTRATOS_DE_DADOS.md) registra tipos, chaves e nulabilidade. Documentos marcados como legados não definem o modelo novo.
 
@@ -24,7 +27,7 @@ Há dois relógios diferentes:
 
 A API fornece o cadastro observado durante a coleta. **Não afirmamos que esses atributos estavam assim à meia-noite ou na passagem antiga.** Marca, Talento, responsável e `projeto_ativo` são a atribuição cadastral disponível, com data de referência. O status publicado é a última etapa do histórico anterior ao corte; divergências da origem continuam sinalizadas. Uma correção de cadastro pode reclassificar todo o histórico.
 
-Antes da extração agendada, o executor grava uma reserva em `etl_run`: `run_id` UUID determinístico de pipeline + data local, `mode=scheduled`. A PK impede uma segunda reserva da mesma data; o advisory lock impede duas cargas simultâneas do quadro. Reinício, outro processo ou repetição do comando `daily` não duplicam uma data já reservada. O registro passa a `success` no commit da carga ou `failed` em falha; uma queda abrupta pode deixá-lo `running`, o que também bloqueia repetição automática.
+Antes da extração agendada, o executor grava uma reserva na coleção privada `etl_run`: `run_id` UUID determinístico de pipeline + data local, `mode=scheduled`. A checagem de chave sob advisory lock e a persistência no checkpoint impedem uma segunda reserva da mesma data. Reinício, outro processo ou repetição do comando `daily` não duplicam uma data já reservada. O registro passa a `success` na publicação ou `failed` em falha; uma queda abrupta pode deixá-lo `running`, o que também bloqueia repetição automática.
 
 É uma tentativa automática por dia, sem retry de lote. Retries de requisições HTTP dentro da mesma tentativa não são cargas adicionais. Se a VPS estiver desligada às 06h, não há como garantir execução naquele instante: o loop espera o próximo horário quando voltar. Corrigir a causa e executar recuperação manual quando necessário. `daily` manual também usa a reserva diária; `backfill` é recuperação excepcional autorizada e pode consultar o histórico completo. `replay` recalcula a partir do material já coletado, sem Monday e sem avançar o watermark. Nenhum desses comandos deve ser colocado como segunda tarefa automática.
 
@@ -40,10 +43,10 @@ O primeiro ambiente novo precisa de `backfill` antes de ativar o agendador. A re
 6. **Prata e tempos técnicos:** `services/transform.py` ordena os eventos, mantém empates na ordem nativa, deduplica movimentos sem mudança de status e constrói intervalos contíguos. Separa observado de inferido, calcula resumo e distribuição diária e reconcilia as durações.
 7. **Elegibilidade/identidades/pessoas:** módulos em `rules/` aplicam as regras abaixo ao cadastro disponível. A exclusão remove o projeto inteiro da Gold. Diagnósticos registram motivo e versão; não descartam a evidência usada para a decisão.
 8. **Gold D+1:** `services/gold.py` enriquece as passagens; `rules/cutoff.py` retém somente entradas anteriores ao corte, limita a última duração e recalcula status no corte, primeira/última linha e totais comprovados. Não altera a Bronze ou os intervalos técnicos da coleta.
-9. **Validação:** contrato + reconciliação com a origem + sequência + retornos + conjunto exato de passagens elegíveis. PKs, FKs, NOT NULL e UNIQUE complementam as regras Python.
-10. **Publicação:** `db/postgres.py::commit` publica Bronze nova, derivados, Gold, quarentena e watermark em uma transação. Uma falha reverte o lote. A reserva operacional em `etl_run` é separada, deliberadamente, para sobreviver à falha e impedir repetição automática.
+9. **Validação:** contrato + referências internas + reconciliação com origem + sequência + retornos + conjunto exato de passagens elegíveis. PK, NOT NULL, UNIQUE, índice parcial e CHECKs da Gold complementam as regras Python; não existem FKs para tabelas removidas.
+10. **Publicação:** `db/consumer.py::commit` prepara estado durável no volume, substitui Gold e recibo em uma transação PostgreSQL, depois promove o checkpoint. Falha recupera a geração apontada pelo recibo. A reserva operacional é publicada antes da extração para sobreviver à falha e impedir repetição automática. Não existe transação distribuída nativa entre SQLite e PostgreSQL.
 
-Na implementação atual, o parsing/tratamento ocorre em memória antes do commit conjunto. Portanto, não existe uma Bronze nova já persistida antes de cada transformação nem uma landing independente. O termo ELT aqui descreve o fluxo de dados; operacionalmente há ETL em Python e replay da Bronze existente. Não há processamento pesado dentro do Power BI.
+O parsing/tratamento ocorre em memória antes da preparação do checkpoint candidato. Não há landing independente anterior à transformação. O termo ELT descreve o fluxo de dados; operacionalmente há ETL em Python e replay das evidências guardadas no volume. Não há tratamento pesado dentro do Power BI.
 
 ## 4. Onde ficam as regras
 
@@ -59,7 +62,8 @@ Na implementação atual, o parsing/tratamento ocorre em memória antes do commi
 | `rules/__init__.py` | Versão semântica das regras | Versão gravada na publicação |
 | `services/gold.py` | Montagem e reconciliação da tabela final | `tests/test_gold.py`, `tests/test_cutoff.py` |
 | `services/scheduler.py` | Horário diário sem carga ao iniciar | `tests/test_scheduler.py` |
-| `db/postgres.py` | Reserva diária, lock, leitura consistente e commit | `tests/test_postgres.py` |
+| `db/consumer.py`, `db/checkpoint.py` | Reserva diária, estado durável, recuperação e publicação de tabela única | `tests/test_consumer.py` |
+| `db/postgres.py` | Adaptador legado de migração e lock PostgreSQL; não usado para criar tabelas na rotina atual | `tests/test_postgres.py` |
 | `models/schemas.py`, `models/contracts.py` | Grão, tipos, relações e validações portáteis | Testes de contrato, chaves e PostgreSQL |
 
 ### Exclusões vigentes
@@ -96,14 +100,18 @@ Alterar aliases no DBeaver: localizar os candidatos, revisar com a equipe, preen
 
 Para desfazer: restaurar regra/catálogo anterior e reprocessar a partir da Bronze compatível, após verificar o corte. O replay normal usa o catálogo atual, não seleciona automaticamente uma versão histórica. Backup testado é a recuperação se a origem já não estiver disponível. Não reenumerar SKs ou apagar o histórico para corrigir grafia.
 
-## 6. O que permanece no banco e por quê
+## 6. Armazenamento versão 3.0
 
-Uma tabela de indicadores e uma fila de saneamento não significam uma única tabela física para todo o sistema. Estas 20 tabelas têm função na implementação atual:
+PostgreSQL contém **somente gold_projeto_status**. A migração exclui fisicamente as outras 19 tabelas. Bronze/Prata/controle/revisões continuam como coleções privadas compactadas em `/app/runtime/pipeline_state_orcamento_18429499488.sqlite3`, usando os contratos abaixo. Não criar outro schema técnico.
+
+O volume é obrigatório. `db/consumer.py` implementa publicação e migração; `db/checkpoint.py` faz gravação durável e recuperação por recibo. O recibo da geração publicada fica no comentário da Gold, atualizado no mesmo commit que suas linhas. PK, UNIQUE, CHECKs e índice único da última passagem são PostgreSQL; referências entre coleções são validadas em Python.
+
+Inventário **lógico interno**, não inventário de tabelas do banco:
 
 | Tabela | Informação e finalidade |
 |---|---|
 | `gold_projeto_status` | Saída única de indicadores: passagens elegíveis, tempos fechados e atributos |
-| `quarentena_projeto` | Fila de saneamento: projeto, nomes originais, motivos e versão; não entra nos KPIs |
+| `quarentena_projeto` (coleção interna) | Fila de saneamento: projeto, nomes originais, motivos e versão; não entra nos KPIs |
 | `bronze_monday_activity_log_raw` | Eventos originais; deduplicação por ID e reconstrução do histórico |
 | `bronze_monday_item_snapshot_raw` | Cadastros/estado observados por item e data; origem de atributos e exclusões |
 | `bronze_monday_board_schema_raw` | Configuração do quadro/mapeamentos por data; replay |
@@ -123,13 +131,11 @@ Uma tabela de indicadores e uma fila de saneamento não significam uma única ta
 | `etl_watermark` | Última coleta publicada com sucesso; controle incremental |
 | `etl_run` | Auditoria de execução, reserva diária, resultado e métricas |
 
-As quatro views `gold_intervals_local`, `gold_project_status`, `gold_status_metrics` e `gold_status_bottlenecks` foram substituídas. A migração `sql/010_retire_legacy_views.sql` as retira sem CASCADE; novas inicializações não as recriam. Não manter relatórios ligados a elas. A remoção está limitada a essas saídas, porque eliminar as tabelas acima quebraria funções ainda usadas ou perderia evidência necessária.
-
-Não é preciso adicionar outra tabela de KPI agora. A Gold já permite filtros e agregações. Uma futura dimensão corporativa de Marca/Talento só se justifica com cadastro confiável e identificação entre áreas; não relacionar bases pelo nome digitado.
+As views anteriores e as 19 tabelas auxiliares não são recriadas. `PostgresStore` é adaptador legado de migração/testes; a execução normal usa `ConsumerStore`. Quarentena/catálogo são exportados em CSV/JSON, conforme [guia de revisão](QUARENTENA_E_IDENTIDADES.md). Backup precisa incluir o checkpoint junto do dump PostgreSQL.
 
 ## 7. Aceite e consumo
 
-Executar `validate`, `validate-gold` e `quality-profile`: conferem, respectivamente, a reconciliação técnica, a Gold contra intervalos/eligibilidade/corte e o contrato das 20 tabelas. Leitura de validação PostgreSQL usa snapshot consistente para não misturar duas publicações.
+Executar `validate`, `validate-gold` e `quality-profile`: conferem, respectivamente, a reconciliação técnica, a Gold contra intervalos/eligibilidade/corte e o contrato das 20 coleções internas e da publicação única. Leitura de validação PostgreSQL usa snapshot consistente para não misturar duas publicações.
 
 Confirmar no banco: PKs sem duplicidade, UNIQUE `(board_id,item_id,ordem_etapa)`, uma última passagem por projeto, horas reconciliadas, corte único, nenhum projeto excluído presente e versão esperada. O [SQL de verificação](../sql/011_validar_consumo.sql) permite conferir pelo DBeaver sem acessar a VPS.
 
