@@ -21,6 +21,10 @@ O objetivo prioritário confirmado é selecionar o projeto X, conhecer sua traje
 
 O usuário confirmou que não existem metas por etapa: a fase atual é de estudo dos tempos reais para estabelecer padrões. Medir permanência já está implementado. Metas máximas por etapa e a classificação dentro/fora do SLA ainda dependem de definição de negócio e implementação. Não confundir a permanência medida com uma meta já cadastrada. D+1 fechado permanece proposto; o modo atual é corte no início da execução.
 
+## Rotina preferida de acesso
+
+O usuário trabalhará pelo VS Code/Python e pelo DBeaver, com dados no PostgreSQL da VPS. Guia: [ROTINA_VSCODE_DBEAVER.md](docs/ROTINA_VSCODE_DBEAVER.md). A operação cotidiana não deve exigir terminal da VPS; configuração inicial e manutenção de infraestrutura continuam necessárias. Execução Python local depende desta máquina ligada; o executor remoto agendado ainda deve ser implantado. Separar análise em leitura, escrita do pipeline e desenvolvimento/homologação; os papéis definitivos ainda não estão configurados.
+
 ## Qualidade e padrão da equipe
 
 O usuário confirmou que organização, tratamento coerente entre camadas e documentação completa são requisitos permanentes para este e os próximos pipelines. Padrão: [ARQUITETURA_E_GOVERNANCA.md](docs/ARQUITETURA_E_GOVERNANCA.md). Contrato de todos os campos: [CONTRATOS_DE_DADOS.md](docs/CONTRATOS_DE_DADOS.md), gerado do metadata e contrato executável 1.0.0.

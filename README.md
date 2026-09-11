@@ -32,6 +32,8 @@ docker compose --profile job run --rm pipeline daily
 
 `daily` sem watermark executa automaticamente o backfill disponível. `replay` recalcula Silver/Gold no último corte bem-sucedido, sem chamar a API e sem alterar o watermark. `health` retorna exit code 1 se a última execução falhou ou está atrasada.
 
+Rotina de desenvolvimento e análise: [VS Code/Python e DBeaver](docs/ROTINA_VSCODE_DBEAVER.md).
+
 ## Executar sem container de aplicação
 
 ```powershell
