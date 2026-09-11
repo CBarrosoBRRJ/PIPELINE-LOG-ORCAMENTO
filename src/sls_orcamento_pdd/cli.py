@@ -16,6 +16,7 @@ def main():
             "init-db",
             "backfill",
             "daily",
+            "loop",
             "replay",
             "validate",
             "health",
@@ -78,6 +79,32 @@ def main():
             from .pipelines.runner import run
 
             run(settings, args.command)
+        elif args.command == "loop":
+            import time as _time
+            from datetime import datetime, timedelta
+            from zoneinfo import ZoneInfo as _Zone
+
+            from .pipelines.runner import run
+
+            tz = _Zone(settings.preferred_timezone)
+            minute, hour = (int(x) for x in settings.cron_schedule.split()[:2])
+            emit("loop_started", schedule=f"{hour:02d}:{minute:02d}", tz=settings.preferred_timezone)
+            while True:
+                try:
+                    run(load_settings(args.env_file), "daily")
+                    emit("loop_run_success")
+                except Exception as loop_error:  # noqa: BLE001
+                    emit(
+                        "loop_run_failed",
+                        error_type=type(loop_error).__name__,
+                        error=str(loop_error)[:500],
+                    )
+                now = datetime.now(tz)
+                nxt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if nxt <= now:
+                    nxt += timedelta(days=1)
+                emit("loop_sleeping", next_run=nxt.isoformat())
+                _time.sleep((nxt - now).total_seconds())
         elif args.command == "replay":
             from .pipelines.runner import replay
 
