@@ -50,3 +50,5 @@ Backup remoto `runtime/backups/vps_rede_globo_validated.dump` (6.099.439 bytes) 
 ## Consultas analíticas — 11/09/2026
 
 As oito consultas de `sql/006_analise_projeto.sql` foram executadas em transação somente leitura na VPS: localização, trajetória, horas por status com qualidade, resumo, diagnósticos, estatísticas de visitas encerradas, fila atual e corte. Validado projeto com múltiplas visitas à mesma etapa. Nenhuma nova tabela ou regra de duração foi criada para essas consultas.
+
+Os exemplos SQL executáveis do guia `RELACIONAMENTOS_E_KPIS.md` também foram validados. O join dos intervalos com dimensões pelas SKs preservou a contagem de visitas e a soma de minutos. O exemplo com a futura base de orçamentos é ilustrativo e não foi executado.

@@ -23,6 +23,17 @@ O e-mail e a senha do EasyPanel não são necessariamente o usuário e a senha S
 5. No PowerShell desta máquina, a forma do comando é `ssh -p PORTA USUARIO@IP_DA_VPS`, substituindo os três campos. Na primeira conexão, confira a impressão da chave do servidor por um canal confiável da hospedagem antes de aceitar. Digite uma eventual senha apenas no terminal; os caracteres podem não aparecer.
 6. Acesso por chave permite automação sem digitar senha. A chave pública é cadastrada no servidor; a privada fica nesta máquina. Se ainda não houver chave, configuraremos depois de validar o acesso existente. Não é preciso enviar a chave privada ao assistente.
 
+## Passo a passo na Hostinger (hospedagem confirmada)
+
+1. Entre no **hPanel da Hostinger**, na conta onde a VPS foi contratada.
+2. Abra **VPS** e clique em **Gerenciar** ao lado do servidor correspondente.
+3. Na visão geral, clique em **Web Console / Terminal do navegador**, no canto superior direito. Esse console pode autenticar automaticamente pela sessão da Hostinger.
+4. Quando o terminal abrir, execute `whoami`, depois `cat /etc/os-release` e `docker compose version`. Pode compartilhar essas saídas; não contêm senhas.
+5. Na mesma visão geral, o cartão de detalhes da VPS apresenta IP e usuário. O cabeçalho de acesso root fornece um comando SSH copiável. Pode informar esse comando ao assistente: ele identifica host/usuário/porta, sem precisar informar a senha.
+6. Se o console solicitar senha, digite-a apenas ali. Não use automaticamente a senha PostgreSQL ou do EasyPanel. Não redefina configurações SSH/firewall como tentativa inicial se o console funciona.
+
+Fontes oficiais verificadas: [acesso SSH e Web Console](https://www.hostinger.com/support/5723772-how-to-connect-to-your-vps-via-ssh-at-hostinger/) e [terminal do navegador](https://www.hostinger.com/br/support/7978544-como-usar-o-terminal-do-navegador/).
+
 ## Caminho escolhido para este pipeline
 
 Código no repositório `https://github.com/CBarrosoBRRJ/PIPELINE-LOG-ORCAMENTO`, cópia versionada em `/opt/sls_orcamento_pdd` na VPS, imagem Docker construída lá e cron do Linux chamando um job diário. O PostgreSQL continua gerenciado pelo EasyPanel.
@@ -138,4 +149,4 @@ Reativar o agendamento somente após sucesso. O `.env` e o banco não são subst
 
 Banco e carga remotos funcionam. O objetivo analítico atual é estudar tempos e encontrar padrões; não há meta de prazo definida por etapa e isso não impede o estudo. Consultas e dicionário estão no [PRD analítico](PRD_ANALITICO.md).
 
-A instalação do executor na VPS aguarda identificação e validação do acesso SSH/console. Não há cron remoto confirmado. GitHub preparado/publicado deve ser registrado na conversa e verificado pelo commit remoto; isso não equivale a implantação automática.
+A instalação do executor na VPS aguarda identificação e validação do acesso SSH/console. Não há cron remoto confirmado. Código e documentação publicados em `main` no repositório informado, em 11/09/2026. Isso não equivale a implantação automática. Segredos, runtime e backups não foram incluídos no Git.
