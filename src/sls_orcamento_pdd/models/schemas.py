@@ -33,6 +33,12 @@ TYPES = {
 }
 
 DEFINITIONS = {
+    "quarentena_projeto": (
+        "board_id,item_id",
+        "board_id:id item_id:id projeto_nome:text marca_original:text talento_original:text "
+        "interveniencia_original:text motivos:json cadastro_referencia_utc:time "
+        "corte_utc:time versao_regras:text atualizado_em:time",
+    ),
     "meta_gold_rule_snapshot": (
         "versao_regras",
         "versao_regras:text board_id:id conteudo:json registrado_em:time",
@@ -40,7 +46,7 @@ DEFINITIONS = {
     "meta_entity_mapping": (
         "board_id,entity_type,source_key",
         "board_id:id entity_type:text source_key:text source_text:text canonical_id:text "
-        "canonical_name:text entity_kind:text review_status:text reviewed_by:text updated_at:time",
+        "canonical_name:text entity_kind:text review_status:text reviewed_by:text review_reason:text updated_at:time",
     ),
     "gold_projeto_status": (
         "interval_id",
@@ -160,6 +166,7 @@ def foreign_keys():
             relationships.append((name, "current_status_id", "dim_status", "status_id"))
     relationships.extend(
         [
+            ("quarentena_projeto", "versao_regras", "meta_gold_rule_snapshot", "versao_regras"),
             ("gold_projeto_status", "versao_regras", "meta_gold_rule_snapshot", "versao_regras"),
             ("gold_projeto_status", "interval_id", "fct_item_status_interval", "interval_id"),
             ("gold_projeto_status", "status_atual_id", "dim_status", "status_id"),
@@ -200,6 +207,7 @@ def surrogate_foreign_keys():
 
 
 REPLACE_TABLES = {
+    "quarentena_projeto",
     "gold_projeto_status",
     "silver_monday_status_event_stg",
     "fct_item_status_interval",
@@ -229,6 +237,9 @@ def define_tables(schema="sladb"):
             for field in fields.split()
         ]
         tables[name] = Table(name, metadata, *columns)
+    tables["gold_projeto_status"].append_constraint(
+        UniqueConstraint("board_id", "item_id", "ordem_etapa", name="uq_gold_projeto_ordem")
+    )
     import hashlib
 
     for name, (source, surrogate) in DIMENSION_IDENTITIES.items():

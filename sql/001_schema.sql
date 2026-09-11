@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS sladb.meta_entity_mapping (
 	entity_kind TEXT NOT NULL,
 	review_status TEXT NOT NULL,
 	reviewed_by TEXT,
+	review_reason TEXT,
 	updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
 	PRIMARY KEY (board_id, entity_type, source_key),
 	CONSTRAINT fk_meta_entity_mapping_c3348c56 FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED
@@ -315,6 +316,31 @@ CREATE TABLE IF NOT EXISTS sladb.fct_item_status_daily (
 CREATE INDEX IF NOT EXISTS ix_fct_item_status_daily ON sladb.fct_item_status_daily (board_id, dt);
 
 
+CREATE TABLE IF NOT EXISTS sladb.quarentena_projeto (
+	board_id BIGINT NOT NULL,
+	item_id BIGINT NOT NULL,
+	projeto_nome TEXT NOT NULL,
+	marca_original TEXT,
+	talento_original TEXT,
+	interveniencia_original TEXT,
+	motivos JSONB NOT NULL,
+	cadastro_referencia_utc TIMESTAMP WITH TIME ZONE,
+	corte_utc TIMESTAMP WITH TIME ZONE NOT NULL,
+	versao_regras TEXT NOT NULL,
+	atualizado_em TIMESTAMP WITH TIME ZONE NOT NULL,
+	board_sk TEXT NOT NULL,
+	item_sk TEXT NOT NULL,
+	PRIMARY KEY (board_id, item_id),
+	CONSTRAINT fk_quarentena_projeto_29b0032b FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_quarentena_projeto_267687df FOREIGN KEY(item_id) REFERENCES sladb.dim_item (item_id) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_quarentena_projeto_1f7e0a39 FOREIGN KEY(versao_regras) REFERENCES sladb.meta_gold_rule_snapshot (versao_regras) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_sk_quarentena_projeto_92984cea FOREIGN KEY(board_id, board_sk) REFERENCES sladb.dim_board (board_id, board_sk) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_sk_quarentena_projeto_0028f109 FOREIGN KEY(item_id, item_sk) REFERENCES sladb.dim_item (item_id, item_sk) DEFERRABLE INITIALLY DEFERRED
+)
+
+;
+
+
 CREATE TABLE IF NOT EXISTS sladb.fct_item_status_interval (
 	interval_id TEXT NOT NULL,
 	board_id BIGINT NOT NULL,
@@ -441,6 +467,7 @@ CREATE TABLE IF NOT EXISTS sladb.gold_projeto_status (
 	item_sk TEXT NOT NULL,
 	status_sk TEXT NOT NULL,
 	PRIMARY KEY (interval_id),
+	CONSTRAINT uq_gold_projeto_ordem UNIQUE (board_id, item_id, ordem_etapa),
 	CONSTRAINT fk_gold_projeto_status_3e6fde19 FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED,
 	CONSTRAINT fk_gold_projeto_status_d612ad30 FOREIGN KEY(item_id) REFERENCES sladb.dim_item (item_id) DEFERRABLE INITIALLY DEFERRED,
 	CONSTRAINT fk_gold_projeto_status_a35625af FOREIGN KEY(status_id) REFERENCES sladb.dim_status (status_id) DEFERRABLE INITIALLY DEFERRED,

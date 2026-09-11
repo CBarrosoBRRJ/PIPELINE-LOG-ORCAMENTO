@@ -26,7 +26,7 @@ def test_six_sao_paulo_is_nine_utc_and_passed_hour_waits_tomorrow():
 def test_failure_log_never_echoes_exception_values(settings):
     events = []
 
-    def failing_runner(*args):
+    def failing_runner(*args, **kwargs):
         raise RuntimeError("password=private-secret SQL parameters confidential")
 
     assert not run_cycle(
@@ -45,3 +45,30 @@ def test_process_defaults_have_finals_and_explicit_empty_is_rejected():
 def test_old_deployment_schema_resolves_to_canonical_name():
     assert Settings(_env_file=None, pg_schema="orcamentos").pg_schema == "orcamento"
     assert Settings(_env_file=None, pg_schema="financeiro").pg_schema == "financeiro"
+
+
+def test_restart_waits_until_schedule_before_calling_runner(settings, monkeypatch):
+    import sls_orcamento_pdd.services.scheduler as scheduler
+
+    class Clock:
+        current = datetime(2026, 9, 11, 8, tzinfo=UTC)
+
+        @classmethod
+        def now(cls, tz):
+            return cls.current
+
+    calls = []
+
+    def sleep(seconds):
+        assert not calls
+        Clock.current = datetime(2026, 9, 11, 9, tzinfo=UTC)
+
+    def runner(*args, **kwargs):
+        calls.append(kwargs["scheduled_for"])
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(scheduler, "datetime", Clock)
+    monkeypatch.setattr("time.sleep", sleep)
+    with pytest.raises(KeyboardInterrupt):
+        scheduler.run_loop(settings, runner, lambda *args, **kwargs: None)
+    assert calls == [datetime(2026, 9, 11, 9, tzinfo=UTC)]

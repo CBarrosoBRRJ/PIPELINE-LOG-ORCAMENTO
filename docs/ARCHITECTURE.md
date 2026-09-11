@@ -1,5 +1,7 @@
 # Arquitetura e contrato de dados
 
+Modelo atual 2.2: consulte [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md). Abaixo fica a descrição técnica da reconstrução; consumo agora usa uma Gold e uma quarentena, sem as views antigas. Corte de extração e corte D+1 da Gold são distintos.
+
 ```text
 Monday GraphQL (somente leitura)
   ├─ schema/colunas → mapeamento dinâmico
@@ -10,7 +12,7 @@ Bronze: envelopes originais + observação do schema
           ↓ transformação Python pura
 Silver: eventos tipados, dimensões, bridge com snapshot_date
           ↓
-Gold: intervalos, minutos por dia, resumo e views de indicadores
+Gold de consumo: gold_projeto_status / saneamento: quarentena_projeto
           ↓
 PostgreSQL → Power BI / migração BigQuery → Databricks
 ```

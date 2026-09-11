@@ -10,7 +10,7 @@ from sls_orcamento_pdd.db.postgres import PostgresStore
 
 
 @pytest.mark.skipif(os.environ.get("RUN_POSTGRES_TESTS") != "1", reason="PostgreSQL opt-in")
-def test_additive_view_migration_keeps_existing_columns(tmp_path):
+def test_initialize_leaves_legacy_view_until_explicit_retirement(tmp_path):
     settings = Settings(pg_schema="sla_test_" + uuid.uuid4().hex[:12], runtime_dir=tmp_path)
     store = PostgresStore(settings)
     table = store.tables["fct_item_status_interval"]
@@ -43,4 +43,4 @@ def test_additive_view_migration_keeps_existing_columns(tmp_path):
             .all()
         )
     assert columns[: len(old_fields) + 2] == old_fields + ["status_start_local", "status_end_local"]
-    assert "item_sk" in columns
+    assert "item_sk" not in columns  # No implicit legacy consumer changes.

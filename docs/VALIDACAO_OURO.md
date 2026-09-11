@@ -1,45 +1,49 @@
-# Validação e publicação da Gold 2.0
+# Validação e publicação — versão 2.2.0
 
-Esta página registra evidências observadas, não garantias de futuras execuções. Publicação inicial em 11/09/2026, preservando o corte **11/09/2026 17:13:16.749793 UTC** (14:13:16 em São Paulo).
+Evidências observadas em 11/09/2026. Estes resultados validam o corte publicado; não são garantia de completude do histórico do Monday ou de execução futura.
 
-## Banco e resultado inicial
+## Publicação no PostgreSQL da VPS
 
-PostgreSQL da VPS, banco `dados_globo`, schema `orcamento`. Tabela **`gold_projeto_status`** publicada. Migração aditiva: nenhuma tabela técnica, evento, snapshot ou watermark removido/avançado pela publicação manual.
+Banco `dados_globo`, schema `orcamento`. Regra **`2.2.0:88ed5c2b27f7f472`**. Publicação manual a partir da coleta de **11/09 19:51:44.677066 UTC** (16:51 São Paulo), sem nova chamada ao Monday e sem avançar o watermark.
 
-| Verificação | Resultado observado |
+Corte Gold: **11/09/2026 00:00 São Paulo (03:00 UTC)**, fechando os tempos até o fim de 10/09. A execução de 12/09 às 06h deverá fechar o fim de 11/09.
+
+| Verificação | Resultado |
 |---|---:|
-| Projetos técnicos | 4.569 |
-| Passagens técnicas | 5.355 |
-| Projetos incluídos na Gold | 4.441 |
-| Passagens publicadas | 5.222 |
-| Projetos excluídos integralmente | 128 |
-| Retornos no histórico elegível | 39 |
-| Passagens elegíveis à comparação observada/encerrada | 349 |
+| Projetos técnicos da coleta | 4.580 |
+| Passagens técnicas completas | 5.396 |
+| Projetos elegíveis anteriores ao corte | 2.822 |
+| Passagens da Gold | 3.330 |
+| Projetos na quarentena | 1.738 |
+| Projetos elegíveis cuja primeira passagem é posterior/igual ao corte | 20 |
+| Retornos na Gold | 23 |
+| Passagens observadas encerradas elegíveis à comparação | 247 |
 
-Motivos de exclusão: ambas as colunas 16; Squad 107; não individual identificado 4; múltiplos talentos 4. Há sobreposição: a soma dos motivos não representa projetos distintos.
+Os motivos de quarentena se sobrepõem: identidade de Interveniência pendente 1.653; ambas as colunas 16; Squad 107; não individual identificado 4; múltiplos talentos 4. Não somar motivos como projetos distintos.
 
-Talento nos projetos incluídos: 2.708 com cadastro exclusivo; 1.603 com texto de Interveniência pendente de revisão de identidade; 130 ausentes. Os 1.603 permanecem nas análises de projeto/status, mas sem atribuição a uma pessoa no ranking. Essa pendência não significa que todos os textos sejam inválidos; significa que a classificação individual ainda não foi confirmada. Grafias de Marca foram normalizadas, não automaticamente fundidas por similaridade.
+Na Gold, 2.707 projetos têm talento proveniente do cadastro de exclusivos e 115 não têm talento informado. Isso não representa aprovação humana de toda grafia. Responsável de Orçamento: 2.372 identificados, 31 com texto cadastral sem correspondência individual segura entre todos os nomes/IDs, 419 ausentes. Ausência é explicitada, não preenchida artificialmente.
 
-Responsáveis de Orçamento: 3.778 projetos com nome/ID identificado; 55 com texto original disponível, mas sem correspondência individual segura entre todos os nomes/IDs; 608 sem responsável informado. Não inventamos pessoa para preencher ausência.
+## Integridade e recuperação
 
-Versão de regras inicial: `2.0.0:09dc31b7b1a1f630`.
+- Backup prévio: `runtime/backups/before_gold_20260911T202758Z.dump`, 7.013.809 bytes, fora do Git.
+- Restore concluído em PostgreSQL 17 isolado, conferindo 4.580 itens, 5.396 intervalos e 819 eventos brutos.
+- Reconstituição dos itens, status, Prata, intervalos, fatos diários e resumos produziu hashes iguais aos existentes.
+- Gold, quarentena, catálogo/versão e diagnósticos publicados sob lock e transação.
+- Bronze e watermark permaneceram iguais.
+- Segunda preparação/publicação produziu hashes iguais nas 20 tabelas: nenhuma cópia ou alteração de conteúdo no mesmo corte.
+- PK de intervalo, UNIQUE de projeto/ordem e FKs fazem parte do schema. Testes reais rejeitam duplicidade e referência inválida, verificando rollback.
+- Saídas antigas substituídas: `gold_intervals_local`, `gold_project_status`, `gold_status_metrics`, `gold_status_bottlenecks`. Remoção explícita sem CASCADE; o código atual não as recria.
 
-## Proteção e reconciliação
+Evidências locais: `runtime/gold_publication_report.json`, `runtime/gold_final_verification.json` e `runtime/gold_backup_verified.json`. Dumps, segredos e cadastros não vão para o GitHub.
 
-- Backup anterior à mudança: `runtime/backups/before_gold_20260911T193243Z.dump`, 6.119.565 bytes, fora do Git.
-- Restauração concluída em PostgreSQL 17 isolado localmente, conferindo 4.569 projetos, 5.355 intervalos e 789 eventos brutos.
-- Hashes dos itens, status, eventos Silver, intervalos, fatos diários e resumos reconstruídos iguais aos existentes antes da publicação.
-- Publicação de Gold, catálogo, snapshot de regras e apontamentos de qualidade sob lock por quadro e transação PostgreSQL.
-- Verificação após publicação confirmou que todas as tabelas técnicas anteriores, exceto o acréscimo dos apontamentos de qualidade, ficaram iguais, incluindo Bronze e watermark.
-- Segunda preparação/publicação produziu hashes iguais em todas as 19 tabelas: reexecução sem duplicação ou alteração de conteúdo.
-- Chaves únicas e FKs fazem parte do modelo; testes PostgreSQL rejeitam inserção duplicada e verificam exclusão/reinclusão após correção.
+## Testes e operação
 
-Evidências detalhadas locais: `runtime/gold_backup_verified.json` e `runtime/gold_publication_report.json`. Não contêm credenciais; dumps e dados de revisão não são enviados ao GitHub.
+Após publicação, `validate` confirmou 4.580 itens técnicos; `validate-gold` executado na imagem Docker confirmou 3.330 linhas; `quality-profile` conferiu as 20 tabelas com **zero falhas críticas**. Consulta de integridade confirmou zero IDs duplicados, zero interseção Gold/quarentena, UNIQUE de ordem presente e **zero views remanescentes** no schema. Verificações concluídas em 11/09/2026 às 20:48 UTC.
 
-## Testes e limites de aceite
+**96 testes passaram**, incluindo PostgreSQL local isolado, corte à meia-noite, transição exatamente no limite, retornos, reserva diária após sucesso/falha, reinício sem carga imediata, catálogo, quarentena e reinclusão com os mesmos IDs. Ruff e verificação de diff passaram. Imagem Docker `sla-orcamento:2.2.0` construída com sucesso.
 
-**86 testes passaram**, incluindo integração PostgreSQL local. Cobrem retornos, ordem nativa com empate, fim aberto, nulos, exclusão integral sem perda técnica, reinclusão, catálogo revisado, responsáveis e bloqueio de chaves duplicadas. Ruff passou. Imagem Docker construída; `validate-gold` executado nessa imagem contra a VPS retornou `gold_validation_success`, 5.222 linhas. `quality-profile` conferiu as 19 tabelas com zero falhas críticas de contrato. Isso não elimina as pendências semânticas de identidade e histórico descritas acima.
+Duas execuções da versão anterior na VPS foram observadas com sucesso, às 19:47 e 19:51 UTC; isso comprova conectividade/coleta, mas não o novo agendamento. O loop novo espera o próximo horário e usa reserva diária durável. O disparo futuro das 06h só poderá ser declarado observado depois que acontecer. O estado efetivo do deploy é conferido separadamente no EasyPanel ao final da atualização.
 
-PBIX/HTML não foram editados. As medidas DAX são arquivos para importar; não foram executadas em um motor Power BI nesta validação.
+A validação do banco não prova que todos os nomes estejam corretos ou que a origem tenha todo o histórico. Pendências classificadas saem dos KPIs e ficam na quarentena. Trechos inferidos continuam identificados. Cadastro e responsáveis são observados na coleta, não historicamente comprovados por passagem.
 
-Publicação no banco foi observada. Publicação no GitHub e versão efetiva do executor devem ser conferidas separadamente ao final deste trabalho. O agendamento das 06h não é execução observada. D+1 fechado, BigQuery real e HTML Content/PBIX não foram implantados nesta mudança. Pendências de segurança, backup recorrente e alertas continuam conforme o aceite provisório.
+PBIX/HTML não foram editados. DAX fornecido como arquivo; não executado em motor Power BI nesta validação. BigQuery corporativo, alerta externo e backup recorrente continuam fora desta implantação provisória.

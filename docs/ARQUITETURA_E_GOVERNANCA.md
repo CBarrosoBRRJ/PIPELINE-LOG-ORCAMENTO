@@ -1,6 +1,6 @@
 # Padrão de arquitetura, qualidade e manutenção da equipe
 
-Versão 1.0 — 11/09/2026. Contrato executável: `models/contracts.py`, versão 1.0.0. Este padrão complementa o [PRD](../PRD.md), o [dicionário analítico](PRD_ANALITICO.md) e o [contrato de campos](CONTRATOS_DE_DADOS.md).
+Versão 2.2.0 — 11/09/2026. Contrato executável: `models/contracts.py`, versão 2.2.0. Regras atuais e inventário: [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md); saneamento: [QUARENTENA_E_IDENTIDADES.md](QUARENTENA_E_IDENTIDADES.md). Este padrão complementa o [PRD](../PRD.md), o [dicionário analítico](PRD_ANALITICO.md) e o [contrato de campos](CONTRATOS_DE_DADOS.md).
 
 ## Princípios adotados
 
@@ -16,7 +16,7 @@ O projeto atual é um pipeline analítico de permanência por status, em fase de
 | Validação de entrada | Validar identidade, tipo, fuso, escopo do quadro e unicidade dos eventos antes da transformação | Ignorar registro crítico e continuar como se a carga estivesse completa |
 | Tratamento para Prata/Ouro | Normalizar Unicode NFC, espaços nas bordas e sequências de espaços em campos textuais analíticos; converter texto vazio em NULL em atributos opcionais | Transformar nome/rótulo em chave; remover acentos dos nomes de apresentação; inventar preenchimentos |
 | Prata | Representar transições tipadas e deduplicadas; preservar status anterior desconhecido como NULL | Criar uma transição para Entrada quando não existe evidência |
-| Ouro | Calcular visitas, tempos, resumos e qualidade; validar unidades, datas e relações | Misturar estimativas com observações sem indicar qualidade |
+| Ouro | Calcular passagens, tempos, resumos e qualidade; validar unidades, datas e relações | Misturar estimativas com observações sem indicar qualidade |
 | Publicação | Contrato portátil antes de gravar; transação com FK/PK/UNIQUE e NOT NULL no PostgreSQL; watermark no mesmo commit | Avançar o corte antes da publicação completa |
 | Consumo | Usar cadastros/chaves e grão adequado, exibir cobertura e corte | Somar medidas após join que multiplica linhas |
 
@@ -32,7 +32,7 @@ O tratamento trabalha em cópias dos registros. `raw_data` e os envelopes Bronze
 | Coluna existe, mas não foi preenchida | NULL; contagem no perfil de qualidade | Marca ou Talento ausentes; corrigir no Monday quando aplicável |
 | Dado não disponível por permissão | NULL ou identidade sem detalhes, conforme campo | E-mail da pessoa indisponível; não inventar |
 | Evento histórico não existe na extração | NULL na informação não comprovada + diagnóstico | Entrada inicial ou finalização desconhecida |
-| Informação ainda não aconteceu | NULL legítimo | Evento de saída da visita ainda aberta |
+| Informação ainda não aconteceu | NULL legítimo | Evento de saída da passagem ainda aberta |
 | Chave, duração ou campo contratualmente obrigatório inválido | Falha bloqueante antes da publicação | `item_id` ausente, duração negativa/NaN, timestamp sem fuso |
 | Status vazio | Membro explícito `Sem status` e diagnóstico | Mantém a FK de status e evidencia ausência na fonte |
 
@@ -46,7 +46,7 @@ Campos opcionais, PKs e tipos estão no contrato gerado. SKs identificam entidad
 - ID Monday fora do domínio inteiro positivo, booleano onde é esperado ID, campo com tipo incompatível, timestamp sem timezone.
 - Registro de outro quadro dentro do lote, SK incompatível com o ID de origem.
 - Duração negativa, infinita ou NaN; divergência entre minutos, horas e diferença de timestamps.
-- Visita marcada como observada sem evento de início; visita aberta com evento final.
+- Visita marcada como observada sem evento de início; passagem aberta com evento final.
 - Qualidade de Entrada incompatível com sua data, ou lead time preenchido sem Entrada comprovada.
 - Referência órfã no PostgreSQL (FK), além das validações de sanidade já existentes.
 
@@ -89,9 +89,9 @@ Para comunicação entre áreas:
 
 Antes de aumentar quadros/áreas, medir eventos, snapshots, memória máxima, tempo por fase, consultas e custo. O perfil atual lê uma tabela por vez, mas materializa suas linhas em memória; para grandes volumes, substituir por agregações no banco e validações por lote/partição. O rebuild atual dos derivados também precisa evoluir para itens/partições afetados, incluindo intervalos abertos.
 
-PostgreSQL usa lock por quadro; revisitar o escopo ao admitir múltiplas colunas/pipelines no mesmo quadro. BQ usa lock local, insuficiente para múltiplos hosts. Agendador distribuído, leases, landing durável, quarentena, retenção e alertas são etapas futuras com testes e documentação próprios.
+PostgreSQL usa lock por quadro; repassagemr o escopo ao admitir múltiplas colunas/pipelines no mesmo quadro. BQ usa lock local, insuficiente para múltiplos hosts. Agendador distribuído, leases, landing durável, quarentena, retenção e alertas são etapas futuras com testes e documentação próprios.
 
-Separar permissões de escrita do pipeline e leitura de consumidores; proteger segredos fora do Git; definir backup, restore e retenção. Banco remoto preenchido não significa executor/cron implantados na VPS. D+1 fechado continua pendente e deve ser tratado separadamente da qualidade de campos.
+Separar permissões de escrita do pipeline e leitura de consumidores; proteger segredos fora do Git; definir backup, restore e retenção. Banco remoto preenchido não significa executor/cron implantados na VPS. O fechamento D+1 dos tempos está implementado na Gold; o cadastro mantém sua data real de coleta. O disparo diário só é declarado observado após sua execução.
 
 ## Documentação obrigatória de todo projeto
 

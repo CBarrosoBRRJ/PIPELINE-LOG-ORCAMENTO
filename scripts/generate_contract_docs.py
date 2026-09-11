@@ -14,7 +14,7 @@ def main():
         f"Versão {CONTRACT_VERSION}. Fonte: `models/schemas.py` e `models/contracts.py`.",
         "Regenerar com `python scripts/generate_contract_docs.py`.",
         "",
-        "Significado de negócio das tabelas: [PRD_ANALITICO.md](PRD_ANALITICO.md).",
+        "Significado de negócio das tabelas: [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md).",
         "Política de nulos e tratamento: [ARQUITETURA_E_GOVERNANCA.md](ARQUITETURA_E_GOVERNANCA.md).",
         "",
         "`id`: inteiro positivo de 64 bits; `text`: texto; `time`: timestamp com fuso;",

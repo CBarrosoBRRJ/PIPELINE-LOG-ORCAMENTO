@@ -27,8 +27,10 @@ def main():
     (root / "001_schema.sql").write_text(
         "\n".join(line.rstrip() for line in ddl.splitlines()) + "\n", encoding="utf-8"
     )
+    # Kept only as a rollback reference; never executed by initialize().
     (root / "002_gold_views.sql").write_text(
-        ";\n\n".join(postgres_views("sladb", "America/Sao_Paulo")) + ";\n", encoding="utf-8"
+        "-- LEGACY: rollback reference only. Current consumer: gold_projeto_status.\n"
+        + ";\n\n".join(postgres_views("sladb", "America/Sao_Paulo")) + ";\n", encoding="utf-8"
     )
     migration = [
         "-- Existing databases: run sla-pipeline init-db first. It adds/backfills UUIDv5 SKs transactionally without extensions.",

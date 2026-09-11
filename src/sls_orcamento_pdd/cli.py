@@ -18,6 +18,7 @@ def main():
             "daily",
             "loop",
             "replay",
+            "preview-gold",
             "validate",
             "validate-gold",
             "health",
@@ -78,27 +79,46 @@ def main():
             emit("database_initialized", target=settings.target_db)
         elif args.command in ("daily", "backfill"):
             from .pipelines.runner import run
+            from .utils.time import utcnow
 
-            run(settings, args.command)
+            run(settings, args.command, scheduled_for=utcnow() if args.command == "daily" else None)
         elif args.command == "loop":
             from .pipelines.runner import run
             from .services.scheduler import run_loop
 
             run_loop(settings, run, emit)
-        elif args.command == "replay":
+        elif args.command in ("replay", "preview-gold"):
             from .pipelines.runner import replay
 
-            replay(settings)
+            replay(settings, publish=args.command == "replay")
         elif args.command == "validate-gold":
             from .db import get_store
+            from .rules.cutoff import closed_day_cut
             from .services.gold import validate_gold
+            from .services.state import watermark
 
             store = get_store(settings)
-            names = ["gold_projeto_status", "fct_item_status_interval", "data_quality_issue"]
-            payload = {n: store.read(n, settings.monday_board_id) for n in names}
+            names = [
+                "gold_projeto_status",
+                "quarentena_projeto",
+                "fct_item_status_interval",
+                "data_quality_issue",
+                "etl_watermark",
+            ]
+            payload = (
+                store.read_many(names, settings.monday_board_id)
+                if hasattr(store, "read_many")
+                else {n: store.read(n, settings.monday_board_id) for n in names}
+            )
             if not payload["fct_item_status_interval"]:
                 raise ValueError("Banco sem intervalos para reconciliar")
-            validate_gold(payload)
+            previous = watermark(payload["etl_watermark"], settings.pipeline_name)
+            cutoff = (
+                closed_day_cut(previous["last_run_utc"], settings.preferred_timezone)
+                if previous
+                else None
+            )
+            validate_gold(payload, cutoff=cutoff)
             emit("gold_validation_success", rows=len(payload["gold_projeto_status"]))
         elif args.command == "validate":
             from .db import get_store
@@ -106,7 +126,11 @@ def main():
 
             store = get_store(settings)
             names = ["dim_item", "fct_item_status_interval", "fct_item_status_daily"]
-            payload = {n: store.read(n, settings.monday_board_id) for n in names}
+            payload = (
+                store.read_many(names, settings.monday_board_id)
+                if hasattr(store, "read_many")
+                else {n: store.read(n, settings.monday_board_id) for n in names}
+            )
             if not payload["dim_item"]:
                 raise ValueError("Banco ainda sem itens")
             validate(payload, sum(i["is_active"] for i in payload["dim_item"]))

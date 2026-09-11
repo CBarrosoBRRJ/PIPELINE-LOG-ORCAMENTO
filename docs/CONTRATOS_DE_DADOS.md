@@ -1,9 +1,9 @@
 # Contrato de campos — referência gerada
 
-Versão 2.0.0. Fonte: `models/schemas.py` e `models/contracts.py`.
+Versão 2.2.0. Fonte: `models/schemas.py` e `models/contracts.py`.
 Regenerar com `python scripts/generate_contract_docs.py`.
 
-Significado de negócio das tabelas: [PRD_ANALITICO.md](PRD_ANALITICO.md).
+Significado de negócio das tabelas: [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md).
 Política de nulos e tratamento: [ARQUITETURA_E_GOVERNANCA.md](ARQUITETURA_E_GOVERNANCA.md).
 
 `id`: inteiro positivo de 64 bits; `text`: texto; `time`: timestamp com fuso;
@@ -11,6 +11,26 @@ Política de nulos e tratamento: [ARQUITETURA_E_GOVERNANCA.md](ARQUITETURA_E_GOV
 `localtime`: data/hora local sem fuso, para apresentação; referência temporal continua em UTC.
 Campos opcionais aceitam NULL. Campos obrigatórios não aceitam NULL e textos obrigatórios não aceitam vazio.
 SKs são calculadas antes da gravação; devem corresponder ao ID original. A obrigatoriedade de SK dimensional é imposta pelo banco.
+
+## `quarentena_projeto`
+
+Chave primária: `board_id,item_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `board_id` | id | Sim | dim_board.board_id |
+| `item_id` | id | Sim | dim_item.item_id |
+| `projeto_nome` | text | Sim | — |
+| `marca_original` | text | Não | — |
+| `talento_original` | text | Não | — |
+| `interveniencia_original` | text | Não | — |
+| `motivos` | json | Sim | — |
+| `cadastro_referencia_utc` | time | Não | — |
+| `corte_utc` | time | Sim | — |
+| `versao_regras` | text | Sim | meta_gold_rule_snapshot.versao_regras |
+| `atualizado_em` | time | Sim | — |
+| `board_sk` | text | Sim | — |
+| `item_sk` | text | Sim | — |
 
 ## `meta_gold_rule_snapshot`
 
@@ -38,6 +58,7 @@ Chave primária: `board_id,entity_type,source_key`.
 | `entity_kind` | text | Sim | — |
 | `review_status` | text | Sim | — |
 | `reviewed_by` | text | Não | — |
+| `review_reason` | text | Não | — |
 | `updated_at` | time | Sim | — |
 
 ## `gold_projeto_status`

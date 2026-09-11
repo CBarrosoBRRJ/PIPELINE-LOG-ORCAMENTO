@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}.meta_entity_mapping` (
   `entity_kind` STRING NOT NULL,
   `review_status` STRING NOT NULL,
   `reviewed_by` STRING,
+  `review_reason` STRING,
   `updated_at` TIMESTAMP NOT NULL,
   PRIMARY KEY (`board_id`, `entity_type`, `source_key`) NOT ENFORCED,
   FOREIGN KEY (`board_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.dim_board` (`board_id`) NOT ENFORCED
@@ -259,6 +260,27 @@ CREATE TABLE IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}.fct_item_status_daily` (
 )
 PARTITION BY dt
 CLUSTER BY board_id, item_id, status_id;
+
+CREATE TABLE IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}.quarentena_projeto` (
+  `board_id` INT64 NOT NULL,
+  `item_id` INT64 NOT NULL,
+  `projeto_nome` STRING NOT NULL,
+  `marca_original` STRING,
+  `talento_original` STRING,
+  `interveniencia_original` STRING,
+  `motivos` JSON NOT NULL,
+  `cadastro_referencia_utc` TIMESTAMP,
+  `corte_utc` TIMESTAMP NOT NULL,
+  `versao_regras` STRING NOT NULL,
+  `atualizado_em` TIMESTAMP NOT NULL,
+  `board_sk` STRING NOT NULL,
+  `item_sk` STRING NOT NULL,
+  PRIMARY KEY (`board_id`, `item_id`) NOT ENFORCED,
+  FOREIGN KEY (`board_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.dim_board` (`board_id`) NOT ENFORCED,
+  FOREIGN KEY (`item_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.dim_item` (`item_id`) NOT ENFORCED,
+  FOREIGN KEY (`versao_regras`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.meta_gold_rule_snapshot` (`versao_regras`) NOT ENFORCED
+)
+CLUSTER BY board_id, item_id;
 
 CREATE TABLE IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}.fct_item_status_interval` (
   `interval_id` STRING NOT NULL,

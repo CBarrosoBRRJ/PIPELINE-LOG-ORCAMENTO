@@ -1,3 +1,4 @@
+-- LEGACY: rollback reference only. Current consumer: gold_projeto_status.
 CREATE OR REPLACE VIEW sladb.gold_status_metrics AS
       WITH dwell AS (
         SELECT board_id, status_id, COUNT(*) AS interval_count,

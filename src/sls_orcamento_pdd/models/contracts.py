@@ -6,8 +6,9 @@ from datetime import date, datetime
 from .keys import SURROGATE_COLUMNS, with_surrogates
 from .schemas import DEFINITIONS
 
-CONTRACT_VERSION = "2.0.0"
+CONTRACT_VERSION = "2.2.0"
 REQUIRED = {
+    "quarentena_projeto": "projeto_nome motivos corte_utc versao_regras atualizado_em board_sk item_sk",
     "meta_gold_rule_snapshot": "board_id conteudo registrado_em",
     "meta_entity_mapping": "source_text entity_kind review_status updated_at",
     "gold_projeto_status": "board_id item_id status_id projeto_nome status_nome status_final ordem_etapa passagem_numero_no_status eh_retorno eh_primeiro_registro eh_ultimo_registro entrada_status_utc entrada_status_local corte_utc corte_local duracao_minutos duracao_horas intervalo_aberto qualidade_historico elegivel_comparacao status_atual_id status_atual_nome projeto_ativo projeto_na_fila status_atual_divergente marca_situacao talento_situacao responsaveis_orcamento_json quantidade_responsaveis_orcamento responsavel_situacao pessoas_referencia_json versao_regras board_sk item_sk status_sk",
@@ -32,7 +33,7 @@ DOMAINS = {
     "qualidade_historico": {"observed", "initial_inferred", "no_history_inferred"},
     "entity_type": {"marca", "talento"},
     "entity_kind": {"person", "organization", "collective", "unknown"},
-    "review_status": {"pending", "approved"},
+    "review_status": {"pending", "approved", "quarantined"},
     "history_quality": {"observed", "initial_inferred", "no_history_inferred"},
     "attribute_source": {"as_of_start", "earliest_available", "unavailable"},
     "sla_start_quality": {"observed_event", "unavailable"},
@@ -67,6 +68,10 @@ def validate_table(name, rows, board_id=None, *, unique=True):
     if name not in DEFINITIONS:
         raise ValueError("Contrato: tabela não cadastrada")
     keys = DEFINITIONS[name][0].split(",")
+    if name == "gold_projeto_status":
+        orders = [(r.get("board_id"), r.get("item_id"), r.get("ordem_etapa")) for r in rows]
+        if len(set(orders)) != len(orders):
+            raise ValueError("Contrato: gold_projeto_status ordem duplicada no projeto")
     fields = dict(field.split(":") for field in DEFINITIONS[name][1].split())
     required = required_columns(name)
     seen = set()
@@ -140,6 +145,18 @@ def validate_table(name, rows, board_id=None, *, unique=True):
                 or row["entity_kind"] == "unknown"
             ):
                 fail("review_status", "aprovação incompleta")
+        if name == "meta_entity_mapping" and row["review_status"] == "quarantined":
+            if not all(
+                isinstance(row.get(k), str) and row[k].strip()
+                for k in ("reviewed_by", "review_reason")
+            ):
+                fail("review_status", "quarentena manual sem motivo ou revisor")
+        if name == "quarentena_projeto" and (
+            not isinstance(row["motivos"], list)
+            or not row["motivos"]
+            or any(not isinstance(v, str) or not v for v in row["motivos"])
+        ):
+            fail("motivos", "quarentena sem motivos válidos")
         if name == "fct_item_status_interval":
             minutes = (row["status_end_utc"] - row["status_start_utc"]).total_seconds() / 60
             if minutes < 0 or abs(minutes - row["duration_minutes"]) > 1e-5:

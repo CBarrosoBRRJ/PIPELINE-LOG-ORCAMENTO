@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from ..clients.monday_client import MondayClient, MondayError
 from ..db import get_store
+from ..rules.cutoff import closed_day_cut
 from ..services.extract import discover, extract_activities, snapshot
 from ..services.gold import build_gold
 from ..services.load import merge_rows
@@ -13,9 +14,19 @@ from ..utils.logging import emit
 from ..utils.time import utcnow
 
 
-def run(settings, mode="daily", *, client=None, store=None, at=None):
+def run(settings, mode="daily", *, client=None, store=None, at=None, scheduled_for=None):
     started = at or utcnow()
-    run_id = str(uuid.uuid4())
+    cutoff = closed_day_cut(scheduled_for or started, settings.preferred_timezone)
+    schedule_date = (
+        scheduled_for.astimezone(ZoneInfo(settings.preferred_timezone)).date().isoformat()
+        if scheduled_for is not None
+        else None
+    )
+    run_id = (
+        str(uuid.uuid5(uuid.NAMESPACE_URL, f"{settings.pipeline_name}:daily:{schedule_date}"))
+        if schedule_date
+        else str(uuid.uuid4())
+    )
     report = {
         "run_id": run_id,
         "board_id": settings.monday_board_id,
@@ -23,13 +34,41 @@ def run(settings, mode="daily", *, client=None, store=None, at=None):
         "start_at": started,
         "status": "running",
         "failures": 0,
+        "scheduled_date": schedule_date,
+        "gold_cut_utc": cutoff.isoformat(),
     }
     client = client or MondayClient(settings)
     store = store or get_store(settings)
     emit("pipeline_start", **report)
+    claimed = False
     try:
         store.initialize()
         with store.lock():
+            if scheduled_for is not None:
+                if not hasattr(store, "claim_daily"):
+                    raise ValueError("Agendamento diário durável homologado apenas em PostgreSQL")
+                if not store.read("dim_board", settings.monday_board_id):
+                    raise ValueError(
+                        "Inicialize o histórico com backfill antes de ativar o agendamento"
+                    )
+                claimed = store.claim_daily(
+                    {
+                        "run_id": run_id,
+                        "board_id": settings.monday_board_id,
+                        "mode": "scheduled",
+                        "start_at": started,
+                        "end_at": started,
+                        "status": "running",
+                        "metrics": json.loads(json.dumps(report, default=str)),
+                    }
+                )
+                if not claimed:
+                    emit(
+                        "pipeline_skipped",
+                        reason="daily_already_claimed",
+                        scheduled_date=schedule_date,
+                    )
+                    return {**report, "status": "skipped"}
             board = client.board()
             mapping, statuses, labels = discover(board, settings)
             previous = watermark(
@@ -114,6 +153,7 @@ def run(settings, mode="daily", *, client=None, store=None, at=None):
                     list(known_people.values()),
                     settings,
                     started,
+                    cutoff=cutoff,
                 )
             )
             previous_intervals = {
@@ -196,7 +236,7 @@ def run(settings, mode="daily", *, client=None, store=None, at=None):
                         {
                             "run_id": run_id,
                             "board_id": settings.monday_board_id,
-                            "mode": mode,
+                            "mode": "scheduled" if schedule_date else mode,
                             "start_at": started,
                             "end_at": report["end_at"],
                             "status": "success",
@@ -220,6 +260,27 @@ def run(settings, mode="daily", *, client=None, store=None, at=None):
         # explicit domain errors are safe to surface; no traceback in production.
         if isinstance(error, (ValueError, MondayError, RuntimeError)):
             report["error"] = str(error)[:1000]
+        if claimed:
+            # Keep the claim even on failure: no automatic second attempt today.
+            try:
+                store.commit(
+                    {
+                        "etl_run": [
+                            {
+                                "run_id": run_id,
+                                "board_id": settings.monday_board_id,
+                                "mode": "scheduled",
+                                "start_at": started,
+                                "end_at": report["end_at"],
+                                "status": "failed",
+                                "metrics": json.loads(json.dumps(report, default=str)),
+                            }
+                        ]
+                    },
+                    settings.monday_board_id,
+                )
+            except Exception:
+                emit("daily_failure_record_unavailable", run_id=run_id)
         write_status(settings, report)
         emit("pipeline_end", **report)
         raise
@@ -254,10 +315,11 @@ def column_catalog(board, mapping, at, previous):
     return list(catalog.values())
 
 
-def replay(settings):
+def replay(settings, *, publish=True):
     """Rebuild at the last successful cut, without API calls or watermark changes."""
     store = get_store(settings)
-    store.initialize()
+    if publish:
+        store.initialize()
     with store.lock():
         previous = watermark(
             store.read("etl_watermark", settings.monday_board_id), settings.pipeline_name
@@ -293,11 +355,14 @@ def replay(settings):
             store.read("dim_person"),
             settings,
             at,
+            cutoff=closed_day_cut(at, settings.preferred_timezone),
         )
-        store.commit(payload, settings.monday_board_id)
+        if publish:
+            store.commit(payload, settings.monday_board_id)
     emit(
-        "replay_success",
+        "replay_success" if publish else "gold_preview",
         as_of=at,
         intervals=len(payload["fct_item_status_interval"]),
         **gold_report,
     )
+    return gold_report

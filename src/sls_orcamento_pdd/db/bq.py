@@ -133,11 +133,15 @@ class BigQueryStore:
         for table in metadata.sorted_tables:
             self.client.query(table_ddl(self.prefix, table.name)).result()
         self.client.query(
+            f"ALTER TABLE `{self.prefix}.meta_entity_mapping` "
+            "ADD COLUMN IF NOT EXISTS review_reason STRING"
+        ).result()
+        self.client.query(
             f"ALTER TABLE `{self.prefix}.fct_item_sla_summary` "
             "ADD COLUMN IF NOT EXISTS sla_start_utc TIMESTAMP, "
             "ADD COLUMN IF NOT EXISTS sla_start_quality STRING"
         ).result()
-        self.create_views()
+        # Single consumption table; legacy views are not created in new datasets.
 
     def create_views(self):
         p = self.prefix

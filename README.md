@@ -1,6 +1,6 @@
 # SLA de projetos — Monday → PostgreSQL → BI
 
-**Consumo versão 2:** importar apenas `orcamento.gold_projeto_status`. Python entrega uma linha por passagem com datas, duração, retorno, Marca, Talento e responsável de Orçamento. Guia: [OURO_CONSUMO.md](docs/OURO_CONSUMO.md). Validação/publicação: [VALIDACAO_OURO.md](docs/VALIDACAO_OURO.md). Histórico técnico preservado, exclusões auditáveis e catálogo de identidades revisável no banco.
+**Consumo versão 2.2:** importar apenas `orcamento.gold_projeto_status`. Python entrega uma linha por passagem com datas, duração, retorno, Marca, Talento e responsável de Orçamento. Guia: [OURO_CONSUMO.md](docs/OURO_CONSUMO.md). Validação/publicação: [VALIDACAO_OURO.md](docs/VALIDACAO_OURO.md). Uma Gold de indicadores, uma [quarentena](docs/QUARENTENA_E_IDENTIDADES.md) e regras separadas por módulo. Guia de manutenção: [PRD_ELT_REGRAS.md](docs/PRD_ELT_REGRAS.md). Tempos D+1: execução às 06h, corte à meia-noite; reinício não executa outra carga.
 
 Pipeline `sls_orcamento_pdd`: snapshots de itens, eventos de status, intervalos de permanência e indicadores diários. Python 3.11+, PostgreSQL 16/17, execução headless. Namespace atual na VPS: `dados_globo.orcamento`; dataset futuro: `sla_orcamento_pdd`.
 
@@ -11,7 +11,7 @@ O `.env` atual aponta para o PostgreSQL existente e seleciona `COMPOSE_FILE=comp
 ```bash
 docker compose build pipeline
 docker compose run --rm pipeline check-db
-docker compose run --rm pipeline daily
+docker compose run --rm pipeline validate-gold
 docker compose run --rm pipeline validate
 docker compose run --rm pipeline health
 ```
@@ -96,7 +96,7 @@ No Power BI, conecte em **PostgreSQL**, banco `dados_globo`, schema `orcamento`,
 
 ## Qualidade e contratos
 
-`quality-profile` inspeciona as 16 tabelas sem alterar dados e gera `runtime/quality_<board_id>.json`, com contagens de nulos/vazios e resultado dos contratos. A passagem para análise normaliza textos em cópias, preservando JSON bruto e nulos legítimos. O lote é bloqueado para identidades, tipos e durações inválidas. Campos obrigatórios também recebem NOT NULL no PostgreSQL.
+`quality-profile` inspeciona as 20 tabelas sem alterar dados e gera `runtime/quality_<board_id>.json`, com contagens de nulos/vazios e resultado dos contratos. A passagem para análise normaliza textos em cópias, preservando JSON bruto e nulos legítimos. O lote é bloqueado para identidades, tipos e durações inválidas. Campos obrigatórios também recebem NOT NULL no PostgreSQL.
 
 Leia [o padrão de arquitetura e governança](docs/ARQUITETURA_E_GOVERNANCA.md) e [o contrato de campos](docs/CONTRATOS_DE_DADOS.md). Antes de migrar uma base existente: backup, `quality-profile`, `init-db`, `replay`, `validate`. Uma linha incompatível deve ser investigada; não será preenchida automaticamente pela migração.
 

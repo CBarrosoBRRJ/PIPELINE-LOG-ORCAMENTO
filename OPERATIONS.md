@@ -1,6 +1,8 @@
-# Operação e implantação na VPS
+# Operação — versão 2.2.0
 
-## Atualização Gold 2.0
+O procedimento atual está detalhado em [PRD_ELT_REGRAS.md](docs/PRD_ELT_REGRAS.md). Uma tentativa às 06h de São Paulo, sem carga ao iniciar o loop. Corte dos tempos à meia-noite local (D+1); cadastro observado na coleta com data de referência. Gold e quarentena são publicadas juntas. Reserva diária em `etl_run` impede repetir a mesma data após reinício/falha. `daily` manual também usa a reserva; recuperação excepcional usa `backfill` ou `replay`, conforme a causa.
+
+## Atualização Gold 2.2
 
 `daily`, `backfill` e `replay` agora publicam também `gold_projeto_status`, com catálogo `meta_entity_mapping` e snapshots imutáveis `meta_gold_rule_snapshot`. A migração é aditiva; não remover as tabelas antigas nem resetar watermark. O Power BI novo importa uma tabela. Consulte [o contrato de consumo](docs/OURO_CONSUMO.md) e [a validação](docs/VALIDACAO_OURO.md).
 
@@ -12,7 +14,7 @@ O replay não comprova deploy do agendador. Conferir a versão no painel e os ca
 
 Banco `dados_globo`, schema **`orcamento`**, PostgreSQL 17.11. Existe apenas uma área de dados deste pipeline. Os nomes anteriores foram consolidados com backup testado; não criar outro banco.
 
-A aplicação existente no EasyPanel executa `sla-pipeline loop`: carga ao iniciar e depois às **06h America/Sao_Paulo**, com `CRON_SCHEDULE=0 6 * * *`. Manter uma réplica, sem cron adicional. O corte é o início da carga, não meia-noite/D+1.
+A aplicação existente no EasyPanel executa `sla-pipeline loop`: espera o próximo horário das **06h America/Sao_Paulo**, com `CRON_SCHEDULE=0 6 * * *`. Manter uma réplica, sem cron adicional. O corte dos tempos é meia-noite local; coleta e cadastro têm timestamps próprios. Não disparar carga extra para validar um deploy: use os comandos de leitura e confira `loop_sleeping`.
 
 Siga [o prompt de conferência do EasyPanel](docs/PROMPT_CLAUDE_EASYPANEL.md) e [o aceite provisório](docs/ACEITE_PROVISORIO.md). Configure `PG_DB=dados_globo`, `PG_SCHEMA=orcamento`, host interno e porta 5432 na aplicação; preserve as credenciais. A compatibilidade temporária do código converte `PG_SCHEMA=orcamentos` para `orcamento`, mas o painel deve usar o nome correto explicitamente. Não retornar a um código anterior à consolidação com a variável antiga.
 
@@ -56,14 +58,14 @@ crontab -l
 
 Para instalações que escolherem cron em vez do loop, o script instala uma única linha marcada `sls_orcamento_pdd`, preservando outras tarefas. `CRON_SCHEDULE="0 6 * * *"` significa 06h **no timezone do servidor**. Confira com `timedatectl`; em servidor UTC, 06h corresponde a 03h em São Paulo. `PREFERRED_TIMEZONE` controla as datas analíticas e não modifica o relógio do cron. O usuário do cron precisa de acesso ao Docker e ao diretório `logs`.
 
-`run_daily.sh` aplica `flock` e o PostgreSQL aplica advisory lock por board. O lock de banco é liberado automaticamente se a sessão cair. Agende um backfill periódico separado, por exemplo semanal, caso seja necessário recuperar eventos publicados com atraso maior que a sobreposição.
+`run_daily.sh` aplica `flock` e o PostgreSQL aplica advisory lock por board. O lock de banco é liberado automaticamente se a sessão cair. Não agendar backfill adicional. Use-o manualmente se precisar recuperar eventos publicados com atraso maior que a sobreposição.
 
 ## Conferir cada execução
 
 - No EasyPanel, logs da aplicação; no modo cron, `logs/daily.log`: eventos, duração e contagens.
 - `/app/runtime/status_<board_id>.json` no volume `runtime_data`: último resultado, gravado por substituição atômica. Em execução Python local, fica na pasta `runtime/`.
-- `orcamento.etl_run`: execuções bem-sucedidas e respectivas métricas.
-- `orcamento.etl_watermark`: corte do último commit completo.
+- `orcamento.etl_run`: sucessos e reservas diárias `running`/`failed`, com data e métricas. Uma reserva não é prova de sucesso.
+- `orcamento.etl_watermark`: referência da última coleta publicada. O corte analítico está na Gold.
 - `orcamento.data_quality_issue`: ausência de histórico, status vazio, divergências, itens ausentes.
 
 Para ler o estado do container: `docker compose --profile job run --rm --entrypoint cat pipeline /app/runtime/status_18429499488.json`. Os estados de execuções Python locais e Docker ficam em locais distintos; use um único modo no cron.
@@ -88,7 +90,7 @@ docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTG
 docker compose --profile job run --rm pipeline validate
 ```
 
-Teste a restauração num banco separado e mantenha uma cópia fora da VPS. Após restaurar, rode `daily`; o watermark restaurado controla o ponto de retomada.
+Teste a restauração num banco separado e mantenha uma cópia fora da VPS. Após restaurar, confira a reserva diária. Recuperação manual pode usar `backfill`; o loop espera o próximo horário, e `daily` não repete data reservada.
 
 ## Troubleshooting
 
@@ -100,7 +102,7 @@ Teste a restauração num banco separado e mantenha uma cópia fora da VPS. Apó
 | Timeout/TLS no Windows | Use `MONDAY_HTTP_TRANSPORT=curl`; mantenha certificados verificados |
 | Complexity/rate limit | A retentativa respeita espera indicada; reduza tamanho de página se persistir |
 | Contagem de itens mudou durante leitura | Reexecute; snapshot é paginado, a origem não oferece transação de leitura |
-| Falha após ler páginas | Watermark e tabelas ficam no último commit; reexecute o mesmo comando |
+| Falha após ler páginas | Watermark e tabelas ficam no último commit; corrigir causa e recuperar manualmente. `daily` não repete data reservada |
 | Correção da lógica sem reler API | `replay`, seguido de `validate` |
 | Histórico anterior ausente | Verifique criação/cópia do board, retenção do plano e permissões; não inferir transições como fatos |
 | Cliente nulo | Coluna não existe no quadro atual; configure uma fonte quando disponível |
@@ -110,11 +112,11 @@ Teste a restauração num banco separado e mantenha uma cópia fora da VPS. Apó
 
 No modo local com banco próprio, o banco está publicado apenas em loopback. Na VPS atual existe porta externa; restrinja o acesso ao configurar o servidor. Use túnel SSH/VPN ou gateway perto da VPS para o Power BI. Para teste via túnel: `ssh -L 55432:127.0.0.1:55432 usuario@VPS`. O comando precisa do host/usuário reais; ajuste as portas ao endpoint real do banco.
 
-Crie um papel dedicado de leitura ao configurar BI; conceda `USAGE ON SCHEMA orcamento`, `SELECT ON ALL TABLES IN SCHEMA orcamento` e privilégios padrão de SELECT para objetos futuros. Não use a conta administrativa do ETL no compartilhamento do relatório. O pipeline trata pessoas como atribuições do projeto, não como prova de quem causou a demora.
+Crie um papel dedicado de leitura ao configurar BI; conceda `USAGE ON SCHEMA orcamento`, `SELECT ON orcamento.gold_projeto_status`. Conceder acesso à quarentena apenas a quem revisará cadastros. Não use a conta administrativa do ETL no compartilhamento do relatório. O pipeline trata pessoas como atribuições do projeto, não como prova de quem causou a demora.
 
 
 ## Evolução de contratos e nulos
 
 Antes de uma atualização de obrigatoriedade, rode `quality-profile` com o código novo e faça backup. Campos requeridos passam a NOT NULL em `init-db`; uma linha legada incompatível aborta a migração sem inventar um preenchimento. O contrato portátil também verifica tipo, identidade, domínio e duração antes de publicar. Depois, `replay` aplica a limpeza a derivados no mesmo corte; `validate` confere durações. A Bronze continua preservada.
 
-Regenerar artefatos ao alterar contrato/metadata: `python scripts/generate_ddl.py` e `python scripts/generate_contract_docs.py`. Leia [ARQUITETURA_E_GOVERNANCA.md](docs/ARQUITETURA_E_GOVERNANCA.md). O perfil materializa uma tabela por vez em memória no MVP; adequar para validação por lote/agregação SQL em volumes maiores.
+Regenerar artefatos ao alterar contrato/metadata: `python scripts/generate_ddl.py` e `python scripts/generate_contract_docs.py`. Leia [ARQUITETURA_E_GOVERNANCA.md](docs/ARQUITETURA_E_GOVERNANCA.md). O perfil lê um snapshot consistente das tabelas em memória no MVP; adequar para validação por lote/agregação SQL em volumes maiores.

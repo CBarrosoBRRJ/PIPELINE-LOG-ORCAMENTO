@@ -1,5 +1,7 @@
 # BigQuery e Databricks
 
+Contrato atual 2.2.0: inclui Gold de passagens e quarentena. O agendamento com reserva diária foi homologado no PostgreSQL; planejar o equivalente corporativo na migração. Não houve implantação BigQuery real nesta etapa.
+
 ## Migrar PostgreSQL → BigQuery
 
 O adapter `db/bq.py` implementa o mesmo contrato do PostgreSQL. A lógica de extração e transformação não muda. Preencha `BQ_PROJECT`, `BQ_DATASET=sla_orcamento_pdd`, `BQ_LOCATION` e `BQ_KEYFILE` no mesmo `.env`. Sem keyfile, usa Application Default Credentials.
@@ -9,7 +11,7 @@ python -m pip install -e '.[bigquery]'
 sla-pipeline export-bq
 ```
 
-O comando cria o dataset/tabelas/views, lê PostgreSQL sob lock, carrega staging com TTL de 24h, executa MERGE por chave natural e confere contagens. Publica o watermark junto aos dados. Ele nunca apaga tabelas de destino; remove apenas staging com UUID criado pela própria execução. O processo não constitui espelhamento contínuo de exclusões em Bronze. Para migração inicial, use um dataset novo.
+O comando cria o dataset/tabelas, lê PostgreSQL sob lock, carrega staging com TTL de 24h, executa MERGE por chave natural e confere contagens. Views legadas não são criadas. Publica o watermark junto aos dados. Ele nunca apaga tabelas de destino; remove apenas staging com UUID criado pela própria execução. O processo não constitui espelhamento contínuo de exclusões em Bronze. Para migração inicial, use um dataset novo e reconciliar também Gold/quarentena/corte/horas.
 
 Depois da conferência, pare o cron PostgreSQL, configure `TARGET_DB=bigquery` e rode `daily`/`validate`. A Bronze migrada permite continuar do watermark sem novo backfill. Para retornar ao PostgreSQL, restaure o backup e reexecute o histórico necessário; não aponte duas agendas para destinos distintos esperando sincronização automática.
 

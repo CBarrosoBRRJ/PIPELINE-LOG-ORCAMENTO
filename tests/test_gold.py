@@ -5,8 +5,9 @@ import pytest
 from conftest import at, raw_event
 
 from sls_orcamento_pdd.models.contracts import validate_table
+from sls_orcamento_pdd.rules.identities import Catalog, source_key
 from sls_orcamento_pdd.services.extract import discover, parse_activity
-from sls_orcamento_pdd.services.gold import Catalog, build_gold, source_key, validate_gold
+from sls_orcamento_pdd.services.gold import build_gold, validate_gold
 from sls_orcamento_pdd.services.transform import transform
 
 
@@ -92,8 +93,8 @@ def test_noop_and_same_timestamp_keep_transform_order(settings, board, sample):
 def test_catalog_review_preserves_identity_and_unknowns(settings, board, sample):
     sample[1][0].update(talento=None, intervenciencia=" Nome  Exemplo ", marca=None)
     initial = build(settings, board, sample)
-    assert initial["gold_projeto_status"][0]["talento_nome"] is None
-    assert initial["gold_projeto_status"][0]["marca_nome"] is None
+    assert initial["gold_projeto_status"] == []
+    assert initial["quarentena_projeto"][0]["motivos"] == ["talento_identidade_pendente"]
     catalog = initial["meta_entity_mapping"]
     catalog[0].update(
         review_status="approved",
@@ -106,7 +107,8 @@ def test_catalog_review_preserves_identity_and_unknowns(settings, board, sample)
     row = reviewed["gold_projeto_status"][0]
     assert row["talento_chave"] == "talento-123"
     assert row["talento_nome"] == "Nome Exemplo"
-    assert row["versao_regras"] != initial["gold_projeto_status"][0]["versao_regras"]
+    assert row["versao_regras"] != initial["quarentena_projeto"][0]["versao_regras"]
+    assert reviewed["quarentena_projeto"] == []
     assert reviewed["meta_entity_mapping"] == []  # Never overwrite reviewed records.
     assert row["entrada_comprovada_utc"] is None
     assert row["tempo_desde_entrada_horas"] is None
@@ -126,6 +128,33 @@ def test_bad_catalog_blocks_publication(settings, board, sample):
     conflicting = {**row, "source_key": "another", "source_text": "Another", "canonical_name": "B"}
     with pytest.raises(ValueError, match="conflitante"):
         Catalog([row, conflicting], 42, at())
+
+
+def test_manual_brand_quarantine_and_source_correction_reinclude_history(settings, board, sample):
+    initial = build(settings, board, sample)
+    ids = {r["interval_id"] for r in initial["gold_projeto_status"]}
+    catalog = initial["meta_entity_mapping"]
+    brand = next(r for r in catalog if r["entity_type"] == "marca")
+    brand.update(
+        review_status="quarantined", reviewed_by="reviewer", review_reason="Grafia ambígua"
+    )
+    blocked = build(settings, board, sample, catalog)
+    assert blocked["gold_projeto_status"] == []
+    assert blocked["quarentena_projeto"][0]["motivos"] == ["marca_revisao_manual"]
+    assert blocked["quarentena_projeto"][0]["marca_original"] == "Marca A"
+    sample[1][0]["marca"] = "Marca Corrigida"
+    fixed = build(settings, board, sample, catalog)
+    assert {r["interval_id"] for r in fixed["gold_projeto_status"]} == ids
+    assert fixed["quarentena_projeto"] == []
+    assert brand["review_status"] == "quarantined"
+
+
+def test_manual_quarantine_requires_reason_and_reviewer(settings, board, sample):
+    result = build(settings, board, sample)
+    row = result["meta_entity_mapping"][0]
+    row["review_status"] = "quarantined"
+    with pytest.raises(ValueError, match="quarentena manual"):
+        Catalog([row], 42, at())
 
 
 def test_multiple_owners_do_not_multiply_passages(settings, board, sample):

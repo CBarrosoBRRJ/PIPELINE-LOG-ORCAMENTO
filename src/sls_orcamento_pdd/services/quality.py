@@ -14,8 +14,9 @@ def quality_profile(store, board_id):
         "tables": {},
         "critical_failures": 0,
     }
+    data = store.read_many(DEFINITIONS, board_id) if hasattr(store, "read_many") else None
     for name, (_, fields) in DEFINITIONS.items():
-        rows = store.read(name, board_id)
+        rows = data[name] if data is not None else store.read(name, board_id)
         columns = {}
         for field in fields.split():
             column, kind = field.split(":")

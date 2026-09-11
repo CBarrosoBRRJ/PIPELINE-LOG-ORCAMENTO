@@ -2,209 +2,25 @@
 
 import hashlib
 import json
-import re
 from collections import Counter, defaultdict
-from uuid import NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo
 
 from ..models.contracts import validate_table
 from ..models.keys import with_surrogates
+from ..rules import RULE_VERSION
+from ..rules.cutoff import close_gold_day
+from ..rules.eligibility import talent_decision
+from ..rules.identities import Catalog
+from ..rules.people import people_fields
 from .clean import clean_text
-from .extract import norm, obj
-
-RULE_VERSION = "2.0.0"
-COLLECTIVES = {"bruno e marrone", "manual do mundo", "podpah"}
-ROLE_TITLES = {
-    "responsavel_orcamento": "orcamento",
-    "talent_manager": "talent manager",
-    "gp": "gp",
-    "audiencia": "audiencia",
-    "conteudo": "conteudo",
-    "producao": "producao",
-}
 
 
-def source_key(value):
-    """Cosmetic matching only: keep accents, punctuation and identity ambiguity."""
-    return (clean_text(value) or "").casefold()
-
-
-def entity_key(board_id, entity_type, value):
-    return str(uuid5(NAMESPACE_URL, f"sls_orcamento_pdd:entity:{board_id}:{entity_type}:{value}"))
-
-
-class Catalog:
-    def __init__(self, rows, board_id, at):
-        validate_table("meta_entity_mapping", rows, board_id)
-        self.rows = {(r["entity_type"], r["source_key"]): dict(r) for r in rows}
-        self.original_keys = set(self.rows)
-        self.board_id, self.at = board_id, at
-        identities = {}
-        for row in rows:
-            if source_key(row["source_key"]) != row["source_key"]:
-                raise ValueError("Catálogo: source_key não normalizada")
-            if row["review_status"] == "approved":
-                if (
-                    not all(
-                        clean_text(row.get(k))
-                        for k in ("canonical_id", "canonical_name", "reviewed_by")
-                    )
-                    or row["entity_kind"] == "unknown"
-                ):
-                    raise ValueError("Catálogo: aprovação sem identidade, tipo ou revisor")
-                identity = (row["entity_type"], row["canonical_id"])
-                definition = (row["canonical_name"], row["entity_kind"])
-                if identity in identities and identities[identity] != definition:
-                    raise ValueError("Catálogo: identidade canônica conflitante")
-                identities[identity] = definition
-
-    def get(self, entity_type, value):
-        label = clean_text(value)
-        if not label:
-            return None
-        key = (entity_type, source_key(label))
-        if key not in self.rows:
-            self.rows[key] = {
-                "board_id": self.board_id,
-                "entity_type": entity_type,
-                "source_key": key[1],
-                "source_text": label,
-                "canonical_id": None,
-                "canonical_name": None,
-                "entity_kind": "unknown",
-                "review_status": "pending",
-                "reviewed_by": None,
-                "updated_at": self.at,
-            }
-        return self.rows[key]
-
-    def resolve(self, entity_type, value, *, exclusive=False):
-        row = self.get(entity_type, value)
-        if row is None:
-            return None, None, "ausente"
-        if row["review_status"] == "approved":
-            if entity_type == "talento" and row["entity_kind"] != "person":
-                return None, None, "nao_individual"
-            return row["canonical_id"], row["canonical_name"], "aprovado"
-        if entity_type == "talento" and not exclusive:
-            return None, None, "pendente_revisao"
-        return (
-            entity_key(self.board_id, entity_type, row["source_key"]),
-            row["source_text"],
-            "cadastro_exclusivo" if exclusive else "texto_normalizado",
-        )
-
-
-def talent_decision(snapshot, mapping, catalog):
-    talent, inter = (clean_text(snapshot.get(k)) for k in ("talento", "intervenciencia"))
-    # Keep both source values available for review, even on excluded projects.
-    for value in (talent, inter):
-        catalog.get("talento", value)
-    reasons = set()
-    if talent and inter:
-        reasons.add("talento_ambas_colunas")
-    values = {v["id"]: v for v in snapshot.get("raw_data", {}).get("column_values", [])}
-    structured = obj(values.get(mapping.get("talento"), {}).get("value"))
-    ids = structured.get("ids", [])
-    if len(set(ids)) > 1:
-        reasons.add("talento_multiplo")
-    for original in (snapshot.get("talento"), snapshot.get("intervenciencia")):
-        value = clean_text(original)
-        if not value:
-            continue
-        normalized = norm(value)
-        row = catalog.get("talento", value)
-        if re.search(r"\bsquad\s+(?:de\s+)?talentos\b", normalized):
-            reasons.add("talento_squad")
-        if normalized in COLLECTIVES or (
-            row["review_status"] == "approved" and row["entity_kind"] != "person"
-        ):
-            reasons.add("talento_nao_individual")
-        # Approved individual identities may contain punctuation; structured
-        # multiple selection and both-columns exclusions always take precedence.
-        approved_person = row["review_status"] == "approved" and row["entity_kind"] == "person"
-        if not approved_person and re.search(r"[,;\n\r+]|\s[&/]\s", original):
-            reasons.add("talento_multiplo")
-    origin = "talento" if talent else "intervenciencia" if inter else None
-    identity = catalog.resolve("talento", talent or inter, exclusive=bool(talent))
-    return sorted(reasons), origin, identity
-
-
-def people_fields(snapshot, board, people):
-    raw_values = {v["id"]: v for v in snapshot.get("raw_data", {}).get("column_values", [])}
-    memberships = defaultdict(set)
-    for p in snapshot.get("pessoas_json", []):
-        memberships[p["source_column_id"]].add((p["kind"], str(p["id"])))
-    columns = {}
-    for field, title in ROLE_TITLES.items():
-        matches = [
-            c["id"] for c in board["columns"] if c["type"] == "people" and norm(c["title"]) == title
-        ]
-        if len(matches) > 1:
-            raise ValueError("Gold: coluna de pessoas ambígua")
-        columns[field] = matches[0] if matches else None
-    if not columns["responsavel_orcamento"]:
-        raise ValueError("Gold: coluna Orçamento do tipo pessoas ausente")
-    distinct = {}
-    for p in snapshot.get("pessoas_json", []):
-        key = (p["source_column_id"], p["kind"], str(p["id"]))
-        known = people.get(str(p["id"]), {}) if p["kind"] == "person" else {}
-        name = clean_text(known.get("person_name") or p.get("name"))
-        if name == f"Pessoa {p['id']}":
-            name = None  # Existing technical placeholder is not a resolved name.
-        name_source = "cadastro_pessoa" if name else "indisponivel"
-        column_text = clean_text(raw_values.get(p["source_column_id"], {}).get("text"))
-        if (
-            not name
-            and column_text
-            and len(memberships[p["source_column_id"]]) == 1
-            and p["kind"] == "person"
-        ):
-            name, name_source = column_text, "texto_snapshot_unica_pessoa"
-        distinct[key] = {
-            "id": str(p["id"]),
-            "tipo": p["kind"],
-            "nome": name,
-            "coluna_id": p["source_column_id"],
-            "nome_origem": name_source,
-        }
-    all_people = [distinct[k] for k in sorted(distinct)]
-    result = {
-        field: " | ".join(p["nome"] for p in all_people if p["coluna_id"] == col and p["nome"])
-        or None
-        for field, col in columns.items()
-    }
-    owners = [p for p in all_people if p["coluna_id"] == columns["responsavel_orcamento"]]
-    # Multiple unresolved IDs retain source display text, never a guessed pairing.
-    for field, column_id in columns.items():
-        members = [p for p in all_people if p["coluna_id"] == column_id]
-        raw_text = clean_text(raw_values.get(column_id, {}).get("text"))
-        if members and any(not p["nome"] for p in members) and raw_text:
-            result[field] = raw_text
-    situation = (
-        "ausente"
-        if not owners
-        else "equipe"
-        if any(p["tipo"] != "person" for p in owners)
-        else "nome_indisponivel"
-        if any(not p["nome"] for p in owners)
-        else "identificado"
-    )
-    if situation == "nome_indisponivel" and result["responsavel_orcamento"]:
-        situation = "texto_snapshot_sem_correspondencia_individual"
-    return {
-        **result,
-        "pessoas_referencia_json": all_people,
-        "responsaveis_orcamento_json": owners,
-        "quantidade_responsaveis_orcamento": len(owners),
-        "responsavel_situacao": situation,
-    }
-
-
-def build_gold(payload, snapshots, board, mapping, catalog_rows, persons, settings, at):
+def build_gold(
+    payload, snapshots, board, mapping, catalog_rows, persons, settings, at, *, cutoff=None
+):
     """Enrich the complete technical history, then exclude whole projects only from Gold."""
     catalog = Catalog(catalog_rows, settings.monday_board_id, at)
-    approved = [r for r in catalog_rows if r["review_status"] == "approved"]
+    approved = [r for r in catalog_rows if r["review_status"] in {"approved", "quarantined"}]
     version_input = {
         "board_id": settings.monday_board_id,
         "catalog": sorted(approved, key=lambda r: (r["entity_type"], r["source_key"])),
@@ -212,6 +28,7 @@ def build_gold(payload, snapshots, board, mapping, catalog_rows, persons, settin
         "columns": [{k: c[k] for k in ("id", "title", "type")} for c in board["columns"]],
         "initial": settings.initial_status_label,
         "final": settings.final_status_labels,
+        "cut_policy": "closed_day" if cutoff is not None else "ingestion_start",
     }
     digest = hashlib.sha256(
         json.dumps(version_input, sort_keys=True, default=str).encode()
@@ -256,14 +73,34 @@ def build_gold(payload, snapshots, board, mapping, catalog_rows, persons, settin
             }
         )
 
-    gold = []
+    gold, quarantine = [], []
     for item in sorted(payload["dim_item"], key=lambda r: r["item_id"]):
         item_id = item["item_id"]
         snap = latest.get(item_id, {})
         reasons, origin, talent = talent_decision(snap, mapping, catalog)
         brand = catalog.resolve("marca", snap.get("marca"))
+        if brand[2] == "quarentena":
+            reasons = sorted(set(reasons) | {"marca_revisao_manual"})
         if reasons:
             issue(item_id, "gold_projeto_excluido", {"motivos": reasons})
+            quarantine.append(
+                with_surrogates(
+                    "quarentena_projeto",
+                    {
+                        "board_id": item["board_id"],
+                        "item_id": item_id,
+                        "projeto_nome": clean_text(item["item_name"]),
+                        "marca_original": snap.get("marca"),
+                        "talento_original": snap.get("talento"),
+                        "interveniencia_original": snap.get("intervenciencia"),
+                        "motivos": reasons,
+                        "cadastro_referencia_utc": snap.get("snapshot_at"),
+                        "corte_utc": cutoff or at,
+                        "versao_regras": version,
+                        "atualizado_em": at,
+                    },
+                )
+            )
             continue
         if talent[2] == "pendente_revisao":
             issue(item_id, "gold_identidade_pendente", {"entidade": "talento"})
@@ -341,12 +178,17 @@ def build_gold(payload, snapshots, board, mapping, catalog_rows, persons, settin
                     },
                 )
             )
+    if cutoff is not None:
+        if cutoff > at:
+            raise ValueError("Gold: corte posterior à extração")
+        gold = close_gold_day(gold, cutoff, settings.preferred_timezone)
     payload["gold_projeto_status"] = gold
+    payload["quarentena_projeto"] = quarantine
     # The pipeline only discovers candidates. Never overwrite human approvals.
     payload["meta_entity_mapping"] = [
         r for key, r in catalog.rows.items() if key not in catalog.original_keys
     ]
-    validate_gold(payload)
+    validate_gold(payload, cutoff=cutoff)
     return {
         "gold_rows": len(gold),
         "gold_projects": len({r["item_id"] for r in gold}),
@@ -354,20 +196,29 @@ def build_gold(payload, snapshots, board, mapping, catalog_rows, persons, settin
             q["code"] == "gold_projeto_excluido" for q in payload["data_quality_issue"]
         ),
         "gold_rules_version": version,
+        "gold_cut_utc": (cutoff or at).isoformat(),
     }
 
 
-def validate_gold(payload):
+def validate_gold(payload, *, cutoff=None):
     """Check exact eligible set, source durations, sequence and whole-project exclusion."""
     gold = payload["gold_projeto_status"]
     validate_table("gold_projeto_status", gold)
+    cuts = {r["corte_utc"] for r in gold}
+    if len(cuts) > 1 or (cutoff is not None and cuts and cuts != {cutoff}):
+        raise ValueError("Gold: cortes misturados")
+    cutoff = cutoff or next(iter(cuts), None)
     excluded = {
         q["item_id"] for q in payload["data_quality_issue"] if q["code"] == "gold_projeto_excluido"
     }
+    if "quarentena_projeto" in payload:
+        validate_table("quarentena_projeto", payload["quarentena_projeto"])
+        if {r["item_id"] for r in payload["quarentena_projeto"]} != excluded:
+            raise ValueError("Quarentena: projetos não reconciliados com as exclusões")
     source = {
         r["interval_id"]: r
         for r in payload["fct_item_status_interval"]
-        if r["item_id"] not in excluded
+        if r["item_id"] not in excluded and (cutoff is None or r["status_start_utc"] < cutoff)
     }
     if set(source) != {r["interval_id"] for r in gold}:
         raise ValueError("Gold: conjunto de passagens não reconciliado")
@@ -384,7 +235,9 @@ def validate_gold(payload):
             raw["item_id"],
             raw["status_id"],
             raw["status_start_utc"],
-            raw["duration_minutes"],
+            (min(raw["status_end_utc"], cutoff) - raw["status_start_utc"]).total_seconds() / 60
+            if cutoff is not None
+            else raw["duration_minutes"],
             raw["history_quality"],
         ):
             raise ValueError("Gold: identidade, duração ou histórico divergente")
@@ -404,3 +257,5 @@ def validate_gold(payload):
                 raise ValueError("Gold: sequência ou retorno inválido")
             if order > 1 and ordered[order - 2]["saida_status_utc"] != row["entrada_status_utc"]:
                 raise ValueError("Gold: descontinuidade entre passagens")
+            if row["intervalo_aberto"] != (order == len(rows)):
+                raise ValueError("Gold: apenas a última passagem pode estar aberta")

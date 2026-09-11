@@ -101,6 +101,12 @@ class PostgresStore:
         with self.engine.begin() as conn:
             conn.execute(CreateSchema(self.settings.pg_schema, if_not_exists=True))
             self.metadata.create_all(conn)
+            conn.execute(
+                text(
+                    f"ALTER TABLE {self.settings.pg_schema}.meta_entity_mapping "
+                    "ADD COLUMN IF NOT EXISTS review_reason TEXT"
+                )
+            )
             self._migrate_surrogate_columns(conn)
             # Seed newly introduced board dimension from existing raw schema history.
             board_rows = conn.execute(
@@ -159,10 +165,8 @@ class PostgresStore:
                 for constraint in table.foreign_key_constraints:
                     if constraint.name not in existing:
                         conn.execute(AddConstraint(constraint))
-            for statement in postgres_views(
-                self.settings.pg_schema, self.settings.preferred_timezone
-            ):
-                conn.execute(text(statement))
+            # Legacy analytical views are no longer published. Retirement is
+            # an explicit migration after backup, not an automatic CASCADE.
 
     def _migrate_surrogate_columns(self, conn):
         for name, columns in SURROGATE_COLUMNS.items():
@@ -237,6 +241,34 @@ class PostgresStore:
             statement = statement.where(target.c.board_id == board_id)
         with self.engine.connect() as conn:
             return [dict(r) for r in conn.execute(statement).mappings()]
+
+    def claim_daily(self, row):
+        """Durable claim under the board lock; PK survives crash/redeploy."""
+        payload = prepare_payload({"etl_run": [row]}, self.settings.monday_board_id)
+        table = self.tables["etl_run"]
+        with self.engine.begin() as conn:
+            return (
+                conn.scalar(
+                    insert(table)
+                    .values(payload["etl_run"][0])
+                    .on_conflict_do_nothing(index_elements=["run_id"])
+                    .returning(table.c.run_id)
+                )
+                is not None
+            )
+
+    def read_many(self, names, board_id=None):
+        """Read one consistent publication, including during a concurrent commit."""
+        with self.engine.connect() as conn:
+            conn.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+            result = {}
+            for name in names:
+                table = self.tables[name]
+                query = select(table)
+                if board_id is not None and "board_id" in table.c:
+                    query = query.where(table.c.board_id == board_id)
+                result[name] = [dict(r) for r in conn.execute(query).mappings()]
+            return result
 
     def commit(self, payload, board_id):
         payload = prepare_payload(payload, board_id)

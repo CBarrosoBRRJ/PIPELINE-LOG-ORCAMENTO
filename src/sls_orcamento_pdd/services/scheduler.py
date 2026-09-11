@@ -26,10 +26,10 @@ def next_daily_run(now, expression, timezone):
     return target.astimezone(UTC)
 
 
-def run_cycle(settings, runner, emit):
+def run_cycle(settings, runner, emit, scheduled_for=None):
     try:
-        runner(settings, "daily")
-        emit("loop_run_success")
+        report = runner(settings, "daily", scheduled_for=scheduled_for or datetime.now(UTC))
+        emit("loop_run_skipped" if report.get("status") == "skipped" else "loop_run_success")
         return True
     except Exception as error:
         # Driver exceptions may contain SQL, parameters or credentials.
@@ -44,7 +44,6 @@ def run_loop(settings, runner, emit):
     daily_schedule(settings.cron_schedule)  # Validate before making any API calls.
     emit("loop_started", schedule=settings.cron_schedule, tz=settings.preferred_timezone)
     while True:
-        run_cycle(settings, runner, emit)
         now = datetime.now(UTC)
         target = next_daily_run(now, settings.cron_schedule, settings.preferred_timezone)
         emit(
@@ -53,3 +52,4 @@ def run_loop(settings, runner, emit):
         )
         while (remaining := (target - datetime.now(UTC)).total_seconds()) > 0:
             time.sleep(min(60, remaining))
+        run_cycle(settings, runner, emit, scheduled_for=target)

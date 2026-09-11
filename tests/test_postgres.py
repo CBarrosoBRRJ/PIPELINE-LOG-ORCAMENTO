@@ -74,7 +74,7 @@ def test_real_postgres_idempotence_incremental_and_failure(pg_settings, board):
     with store.engine.connect() as conn:
         result = conn.execute(
             text(
-                f"SELECT SUM(accumulated_minutes) FROM {pg_settings.pg_schema}.gold_status_metrics"
+                f"SELECT SUM(duration_minutes) FROM {pg_settings.pg_schema}.fct_item_status_interval"
             )
         ).scalar()
         assert result == 600
@@ -168,7 +168,7 @@ def test_gold_exclusion_reinclusion_and_database_uniqueness(pg_settings, board):
     client = MutableMonday(board)
     run(pg_settings, client=client, store=store, at=at())
     gold = store.read("gold_projeto_status")
-    assert len(gold) == 2
+    assert len(gold) == 1  # Closed day excludes the passage starting at 08:00 UTC.
     assert gold[0]["responsavel_orcamento"] == "Pessoa teste"
     with pytest.raises(IntegrityError), store.engine.begin() as conn:
         conn.execute(
@@ -179,11 +179,13 @@ def test_gold_exclusion_reinclusion_and_database_uniqueness(pg_settings, board):
     client.talent = "Squad de Talentos"
     run(pg_settings, client=client, store=store, at=at() + timedelta(hours=1))
     assert store.read("gold_projeto_status") == []
+    assert store.read("quarentena_projeto")[0]["motivos"] == ["talento_squad"]
     assert len(store.read("fct_item_status_interval")) == 2
     assert any(q["code"] == "gold_projeto_excluido" for q in store.read("data_quality_issue"))
     client.talent = "Pessoa individual"
     run(pg_settings, client=client, store=store, at=at() + timedelta(hours=2))
-    assert len(store.read("gold_projeto_status")) == 2
+    assert len(store.read("gold_projeto_status")) == 1
+    assert store.read("quarentena_projeto") == []
     assert {r["interval_id"] for r in store.read("gold_projeto_status")} == {
         r["interval_id"] for r in gold
     }
@@ -205,3 +207,79 @@ def test_catalog_manual_approval_not_overwritten(pg_settings, board):
     run(pg_settings, client=FakeMonday(board), store=store, at=at())
     assert store.read("gold_projeto_status")[0]["marca_nome"] == "Marca Revisada"
     assert len(store.read("meta_gold_rule_snapshot")) == 2
+
+
+def test_durable_daily_claim_blocks_restart_and_failed_retry(pg_settings, board):
+    store = PostgresStore(pg_settings)
+    run(pg_settings, "backfill", client=FakeMonday(board), store=store, at=at())
+    first = run(pg_settings, client=FakeMonday(board), store=store, at=at(), scheduled_for=at())
+    assert first["status"] == "success"
+    second_client = FakeMonday(board, fail=True)
+    repeated = run(
+        pg_settings,
+        client=second_client,
+        store=store,
+        at=at() + timedelta(hours=1),
+        scheduled_for=at(),
+    )
+    assert repeated["status"] == "skipped"
+    assert second_client.pages_items == second_client.pages_logs == 0
+    tomorrow = at() + timedelta(days=1)
+    before = store.read("etl_watermark")
+    with pytest.raises(RuntimeError):
+        run(
+            pg_settings,
+            client=FakeMonday(board, fail=True),
+            store=store,
+            at=tomorrow,
+            scheduled_for=tomorrow,
+        )
+    assert store.read("etl_watermark") == before
+    runs = [r for r in store.read("etl_run") if r["mode"] == "scheduled"]
+    assert sorted(r["status"] for r in runs) == ["failed", "success"]
+    assert (
+        run(
+            pg_settings, client=FakeMonday(board), store=store, at=tomorrow, scheduled_for=tomorrow
+        )["status"]
+        == "skipped"
+    )
+
+
+def test_preview_is_read_only_and_replay_is_idempotent(pg_settings, board, monkeypatch):
+    from sls_orcamento_pdd.pipelines import runner
+
+    store = PostgresStore(pg_settings)
+    run(pg_settings, "backfill", client=FakeMonday(board), store=store, at=at())
+    monkeypatch.setattr(runner, "get_store", lambda settings: store)
+    before = store.read_many(store.tables, 42)
+    preview = runner.replay(pg_settings, publish=False)
+    assert preview["gold_rows"] == len(before["gold_projeto_status"])
+    assert store.read_many(store.tables, 42) == before
+    runner.replay(pg_settings)
+    after = store.read_many(store.tables, 42)
+    for name in before:
+        keys = [c.name for c in store.tables[name].primary_key]
+
+        def ordering(row, keys=keys):
+            return tuple(str(row[k]) for k in keys)
+
+        assert sorted(before[name], key=ordering) == sorted(after[name], key=ordering)
+
+
+def test_gold_business_order_uniqueness_and_retired_views_not_recreated(pg_settings, board):
+    store = PostgresStore(pg_settings)
+    run(pg_settings, "backfill", client=FakeMonday(board), store=store, at=at())
+    with pytest.raises(IntegrityError), store.engine.begin() as conn:
+        row = dict(store.read("gold_projeto_status")[0])
+        # Different PK cannot bypass the project/passage order unique key.
+        row["interval_id"] = "other-pk"
+        conn.execute(store.tables["gold_projeto_status"].insert().values(row))
+    store.initialize()
+    with store.engine.connect() as conn:
+        assert (
+            conn.scalar(
+                text("SELECT count(*) FROM information_schema.views WHERE table_schema=:s"),
+                {"s": pg_settings.pg_schema},
+            )
+            == 0
+        )

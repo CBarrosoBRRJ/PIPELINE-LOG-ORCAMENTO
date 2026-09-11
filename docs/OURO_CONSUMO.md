@@ -1,6 +1,6 @@
 # Gold para consumo — guia da versão 2
 
-Contrato executável 2.0.0. Tabela principal: **`dados_globo.orcamento.gold_projeto_status`**. Código: `services/gold.py`, chamado tanto por `daily/backfill` como por `replay`. Consulte [VALIDACAO_OURO.md](VALIDACAO_OURO.md) para evidências de publicação. A [prévia](PREVIA_OURO_CONSUMO.md) registra as decisões anteriores; este guia descreve a implementação.
+Contrato executável 2.2.0. Tabela principal: **`dados_globo.orcamento.gold_projeto_status`**. Código: `services/gold.py`, chamado tanto por `daily/backfill` como por `replay`. Consulte [VALIDACAO_OURO.md](VALIDACAO_OURO.md) para evidências de publicação. A [prévia](PREVIA_OURO_CONSUMO.md) registra as decisões anteriores; este guia descreve a implementação.
 
 ## O que importar no Power BI
 
@@ -36,11 +36,11 @@ A primeira etapa de negócio é Entrada. Quando não há evento que comprove o i
 
 A última passagem fica com saída nula. Um status final pode continuar sem saída, embora o projeto esteja encerrado. O tempo total desde Entrada termina na finalização comprovada; a permanência na etapa final continua registrada. Se cadastro atual e histórico divergirem, `status_atual_divergente=true`; não inventar a hora da transição faltante.
 
-Todos os horários locais estão em America/Sao_Paulo, sem fuso embutido para apresentação. Os campos UTC são a referência inequívoca. Duração é corrida, incluindo noites/fins de semana. O corte é o início da carga; **D+1 fechado ainda não foi implementado**.
+Todos os horários locais estão em America/Sao_Paulo, sem fuso embutido para apresentação. Os campos UTC são a referência inequívoca. Duração é corrida, incluindo noites/fins de semana. A Gold fecha o dia anterior à coleta: carga das 06h com corte à meia-noite local. Cadastros mantêm a data real de observação, separada do corte dos tempos. Veja [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md).
 
 ## Regras de elegibilidade do projeto
 
-Aplicadas ao último snapshot disponível até o corte, para **o projeto inteiro**:
+Aplicadas ao último snapshot disponível até a coleta, para **o projeto inteiro**:
 
 - Talento e Interveniência preenchidos, mesmo se iguais: excluir.
 - Múltipla seleção de IDs no dropdown: excluir.
@@ -51,6 +51,8 @@ Aplicadas ao último snapshot disponível até o corte, para **o projeto inteiro
 A detecção textual não reconhece automaticamente todas as combinações possíveis. Texto livre desconhecido não é presumido pessoa nem unido por similaridade. O cadastro de revisão resolve casos novos sem inventar identidades.
 
 Marca/Talento vazio não exclui automaticamente um projeto. Campo desconhecido permanece nulo. Sem histórico completo, as passagens ficam identificadas como inferidas e não entram na comparação de tempos observados.
+
+Identidade de Interveniência pendente e grafias explicitamente classificadas como `quarantined` também separam o projeto inteiro. A tabela `quarentena_projeto` reúne os nomes originais e motivos, uma linha por projeto. Correção/revisão permite reinclusão na próxima publicação. Guia: [QUARENTENA_E_IDENTIDADES.md](QUARENTENA_E_IDENTIDADES.md).
 
 Todos os indicadores da Gold abrangem **somente os projetos elegíveis**, incluindo fila, totais e indicadores de Marca. Projetos excluídos continuam nas camadas técnicas. Uma correção no Monday ou nas regras pode reincluir seu histórico na próxima carga. Assim, números históricos podem mudar com correções; corte e versão tornam essa mudança auditável.
 
@@ -65,7 +67,7 @@ Limpeza: Unicode NFC, espaços repetidos, vazios → nulo. A chave de comparaç�
 | Marca `texto_normalizado` | Grafia limpa; ainda não há equivalência canônica aprovada |
 | Talento `cadastro_exclusivo` | Nome único informado na coluna de talentos exclusivos, sem exclusões detectadas; identidade baseada no cadastro, sem dedução por IA |
 | `aprovado` | Correspondência explícita revisada no catálogo |
-| Talento `pendente_revisao` | Texto de Interveniência ainda sem identidade individual aprovada; projeto permanece para análise de status, nome/chave de talento ficam nulos para impedir atribuição indevida |
+| Talento `pendente_revisao` | Texto de Interveniência ainda sem identidade individual aprovada; o projeto inteiro vai para `quarentena_projeto`, fora da Gold |
 | `ausente` | Campo não informado |
 
 `meta_entity_mapping` é a tabela técnica de revisão, no grão quadro + tipo de entidade + chave do texto original. O pipeline descobre candidatos pendentes, mas **não sobrescreve aprovações humanas**. Fonte e nome original permanecem disponíveis. `canonical_id` é um identificador estável escolhido uma vez, por exemplo UUID; não deve depender de futuras alterações no nome.
@@ -108,7 +110,7 @@ Marca: separar **Em elaboração - Retorno Marca/Executivo** e **Aguardando Feed
 
 ## Publicação e manutenção
 
-Há 19 tabelas técnicas/analíticas e as quatro views legadas; o consumidor novo importa apenas a Gold. As três adições são Gold, catálogo e snapshot de regras. Bronze, dimensões, fatos e views antigos permanecem para histórico e compatibilidade.
+Há 20 tabelas com função na carga, auditoria ou consumo. O consumidor de indicadores importa somente a Gold; a quarentena é uma fila independente de saneamento. As quatro views antigas foram substituídas e têm migração explícita de remoção.
 
 Publicação sob lock por quadro, com PK/FKs e contrato; substitui a Gold daquele quadro na mesma transação dos derivados/watermark. Uma falha reverte a transação. Reexecução não acrescenta cópias: preserva `interval_id`; novas passagens legítimas recebem suas próprias chaves. Exclusões retiram todas as linhas do projeto da Gold, preservando a origem. A ferramenta de validação reconcilia o conjunto exato de passagens elegíveis, horários/durações e sequência/retornos.
 

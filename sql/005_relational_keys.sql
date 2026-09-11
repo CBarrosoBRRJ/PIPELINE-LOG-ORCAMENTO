@@ -3,6 +3,13 @@
 -- Reference DDL for constraints after columns and UUIDv5 data migration. No tables are dropped.
 
 DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='uq_gold_projeto_ordem'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.gold_projeto_status ADD CONSTRAINT uq_gold_projeto_ordem UNIQUE (board_id, item_id, ordem_etapa);
+  END IF;
+END $$;
+
+DO $$ BEGIN
   IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='uq_dim_board_identity'
                 AND connamespace='sladb'::regnamespace) THEN
     ALTER TABLE sladb.dim_board ADD CONSTRAINT uq_dim_board_identity UNIQUE (board_id, board_sk);
@@ -55,6 +62,41 @@ DO $$ BEGIN
   IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='uq_dim_item_surrogate'
                 AND connamespace='sladb'::regnamespace) THEN
     ALTER TABLE sladb.dim_item ADD CONSTRAINT uq_dim_item_surrogate UNIQUE (item_sk);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_quarentena_projeto_1f7e0a39'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.quarentena_projeto ADD CONSTRAINT fk_quarentena_projeto_1f7e0a39 FOREIGN KEY(versao_regras) REFERENCES sladb.meta_gold_rule_snapshot (versao_regras) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_quarentena_projeto_267687df'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.quarentena_projeto ADD CONSTRAINT fk_quarentena_projeto_267687df FOREIGN KEY(item_id) REFERENCES sladb.dim_item (item_id) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_quarentena_projeto_29b0032b'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.quarentena_projeto ADD CONSTRAINT fk_quarentena_projeto_29b0032b FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_sk_quarentena_projeto_0028f109'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.quarentena_projeto ADD CONSTRAINT fk_sk_quarentena_projeto_0028f109 FOREIGN KEY(item_id, item_sk) REFERENCES sladb.dim_item (item_id, item_sk) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_sk_quarentena_projeto_92984cea'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.quarentena_projeto ADD CONSTRAINT fk_sk_quarentena_projeto_92984cea FOREIGN KEY(board_id, board_sk) REFERENCES sladb.dim_board (board_id, board_sk) DEFERRABLE INITIALLY DEFERRED;
   END IF;
 END $$;
 
