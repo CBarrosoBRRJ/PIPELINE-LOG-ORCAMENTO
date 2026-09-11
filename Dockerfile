@@ -8,4 +8,4 @@ RUN pip install --no-cache-dir . && useradd --uid 10001 --create-home pipeline \
 COPY sql ./sql
 USER pipeline
 ENTRYPOINT ["sla-pipeline"]
-CMD ["daily"]
+CMD ["loop"]
