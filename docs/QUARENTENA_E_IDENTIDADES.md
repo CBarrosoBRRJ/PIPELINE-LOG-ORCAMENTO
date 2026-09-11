@@ -2,11 +2,13 @@
 
 # Revisão de nomes e projetos fora da análise
 
-Na versão 3.0, PostgreSQL contém apenas `orcamento.gold_projeto_status`. **Não existe tabela de quarentena ou catálogo no banco de consumo.** Esses dados ficam no checkpoint privado do executor e podem ser exportados sem entrar nos KPIs.
+Na versão 3.1, PostgreSQL contém a Gold e `orcamento.pendencias_projeto`. A lista de revisão é pública para o consumo autorizado; catálogo de identidades e evidência completa continuam privados no checkpoint. Projetos excluídos não entram nos KPIs da Gold.
 
 ## Consultar pendências
 
-No executor que possui o volume runtime:
+No DBeaver ou Power BI, consultar `orcamento.pendencias_projeto`. Comece por `excluido_da_analise=true`; os demais projetos têm avisos sem exclusão integral. A lista atualiza na mesma transação da Gold, após coleta/replay. Motivos resolvidos desaparecem, preservando outros motivos que ainda existam.
+
+Opcionalmente, para exportar a quarentena de exclusões e o catálogo, no executor que possui o volume runtime:
 
 ```bash
 sla-pipeline export-review
@@ -40,4 +42,4 @@ sla-pipeline export-review
 
 O importador valida contrato e conflitos antes de guardar as revisões. Descoberta automática não sobrescreve revisão humana. A importação não altera a Gold sozinha; replay ou próxima carga aplica o catálogo. Replay não busca correções novas do Monday: elas entram na próxima coleta diária. Versão/hash das regras e motivos permitem auditar a mudança.
 
-Para trabalhar no VS Code local, usar uma cópia de checkpoint + PostgreSQL **de teste**, com agendador desativado, para revisar/testar regras. Aplicar os arquivos revisados no executor principal por canal privado. DBeaver/Power BI continuam consultando diretamente a única Gold, sem precisar conhecer o arquivo interno.
+Para trabalhar no VS Code local, usar uma cópia de checkpoint + PostgreSQL **de teste**, com agendador desativado, para revisar/testar regras. Aplicar os arquivos revisados no executor principal por canal privado. DBeaver/Power BI consultam diretamente Gold e pendências, sem precisar conhecer o arquivo interno. Não fazer UPDATE na lista de pendências para corrigir a origem.

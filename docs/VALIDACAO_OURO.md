@@ -12,7 +12,25 @@ Hashes esperados no mesmo corte após implantação:
 - Gold pública: `334e346b66936b923dc6fcda4777f22f4933d3ed888d0459b4540f6595a2d939`.
 - Pendências: `acedaa3c45ef61129a5c3da6bc030a9fdc36cecad042139b0f5279f9cae9a171`.
 
-Evidências privadas: runtime/v31_rehearsal_verified.json, runtime/people_fix_backup_verified.json. Publicação na VPS será registrada abaixo após verificação real. PBIX/HTML não foram editados; documentação e SQL prontos para importar os campos atualizados.
+Evidências privadas: runtime/v31_rehearsal_verified.json, runtime/people_fix_backup_verified.json. A publicação real na VPS está registrada na seção seguinte. PBIX/HTML não foram editados; documentação e SQL prontos para importar os campos atualizados.
+
+## Publicação 3.1.0 confirmada na VPS
+
+Código implantado: `5a7afe5` (main), versão 3.1.0 observada no container. Migração concluída em **11/09/2026 22:17:24 UTC**; replay concluído às **22:18:24 UTC**. check-db, validate, validate-gold, quality-profile e health passaram; `FINAL_VALIDATION_31 True` observado. Backup de estado após publicação: `/app/runtime/backups/state_20260911T221854Z.sqlite3`.
+
+Consulta independente ao PostgreSQL às **22:19:34 UTC** confirmou exatamente duas tabelas no banco de usuário: `orcamento.gold_projeto_status` e `orcamento.pendencias_projeto`. As primeiras dez colunas são as do exemplo; a principal possui 33 campos e nenhuma coluna JSON. Os hashes das duas tabelas coincidiram com os do ensaio acima.
+
+- 3.330 passagens, 2.822 projetos na principal; 23 retornos.
+- Zero IDs de passagem duplicados; zero projeto/ordem duplicados; sequência contínua por projeto e exatamente uma última passagem.
+- 4.560 linhas únicas de pendências; 1.738 exclusões sem interseção com a Gold.
+- Quatro CHECKs, PK e UNIQUE da Gold validados; PK quadro/projeto das pendências validada.
+- 511 durações com início comprovado; 2.819 estimativas ficam NULL no consumo, sem perda da evidência interna.
+- IDs, SKs, status, sequência, retornos e tempos observados reconciliados com a publicação anterior.
+- Fonte continua sendo a coleta das 19:51 UTC; corte **11/09 00:00 São Paulo**, sem nova coleta ou avanço de watermark.
+
+Serviço ativo. Logs do processo iniciado às 22:14:44 UTC mostram `loop_started` e `loop_sleeping`, próxima execução **12/09/2026 06:00 -03:00**. A execução futura está agendada, ainda não observada. O único aviso de health é o registro antigo `concurrent_attempt_rejected`, preservado da versão anterior; não é falha desta publicação.
+
+Evidência privada: `runtime/v31_vps_verified.json`. O teste de restauração não foi feito na VPS e nenhuma fixture fictícia foi inserida nela. Ao consumir, atualizar o inventário do DBeaver/reabrir a tabela e substituir as antigas consultas do Power BI pelos contratos atuais.
 
 ---
 
