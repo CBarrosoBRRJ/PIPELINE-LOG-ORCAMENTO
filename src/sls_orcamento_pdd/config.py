@@ -24,7 +24,9 @@ class Settings(BaseSettings):
     )
     status_column_labels_override: dict[str, str] = Field(default_factory=dict)
     business_columns_override: dict[str, str] = Field(default_factory=dict)
-    final_status_labels: list[str] = Field(default_factory=list)
+    final_status_labels: list[str] = Field(
+        default_factory=lambda: ["Encerrado", "Declinado pelo Mercado", "Declinado Internamente"]
+    )
     initial_status_label: str = "Entrada"
     preferred_timezone: str = "America/Sao_Paulo"
     run_window_hours: int = Field(default=24, ge=1)
@@ -53,6 +55,13 @@ class Settings(BaseSettings):
     runtime_dir: Path = Path("runtime")
     cron_schedule: str = "0 6 * * *"
 
+    @field_validator("final_status_labels")
+    @classmethod
+    def configured_finals(cls, value):
+        if not value or any(not label.strip() for label in value):
+            raise ValueError("Configure FINAL_STATUS_LABELS com os status finais do processo")
+        return value
+
     @field_validator("monday_board_id", mode="before")
     @classmethod
     def legacy_board(cls, value):
@@ -68,6 +77,13 @@ class Settings(BaseSettings):
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
             raise ValueError("Identificador de schema/dataset inválido")
         return value
+
+    @field_validator("pg_schema")
+    @classmethod
+    def canonical_budget_schema(cls, value):
+        # Explicit compatibility for the renamed provisional deployment.
+        # Prevent an older EasyPanel variable from recreating a second schema.
+        return "orcamento" if value == "orcamentos" else value
 
     @field_validator("preferred_timezone")
     @classmethod

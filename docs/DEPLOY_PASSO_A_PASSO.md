@@ -1,6 +1,6 @@
 # Implantação passo a passo — GitHub, EasyPanel e VPS
 
-Atualizado em 11/09/2026. Este documento acompanha [OPERATIONS.md](../OPERATIONS.md). Banco existente: `dados_globo.rede_globo`; não é necessário criar outro banco ou recarregar tudo.
+Atualizado em 11/09/2026. **Para a instalação existente no EasyPanel, siga [PROMPT_CLAUDE_EASYPANEL.md](PROMPT_CLAUDE_EASYPANEL.md): já há um executor, não criar outro nem instalar cron adicional.** O roteiro SSH/Compose abaixo é uma alternativa de instalação manual. Este documento acompanha [OPERATIONS.md](../OPERATIONS.md). Banco existente: `dados_globo.orcamento`; não é necessário criar outro banco ou recarregar tudo.
 
 ## O que cada acesso significa
 
@@ -74,7 +74,7 @@ PG_DSN=
 PG_HOST=banco_de_dados_postgres-pipeline
 PG_PORT=5432
 PG_DB=dados_globo
-PG_SCHEMA=rede_globo
+PG_SCHEMA=orcamento
 PIPELINE_DOCKER_NETWORK=NOME_REAL_DA_REDE
 PIPELINE_NETWORK_EXTERNAL=true
 DOCKER_HTTP_TRANSPORT=requests
@@ -109,11 +109,11 @@ docker compose run --rm pipeline health
 bash scripts/backup.sh
 ```
 
-Execute cada comando e só avance se ele terminar com sucesso. `check-db` deve mostrar `dados_globo` e `rede_globo`. A primeira execução na VPS retoma o watermark existente; não apague dados e não crie outro banco. A carga local anterior já foi validada, mas conexão interna, permissões e runtime precisam funcionar no servidor.
+Execute cada comando e só avance se ele terminar com sucesso. `check-db` deve mostrar `dados_globo` e `orcamento`. A primeira execução na VPS retoma o watermark existente; não apague dados e não crie outro banco. A carga local anterior já foi validada, mas conexão interna, permissões e runtime precisam funcionar no servidor.
 
 ### Agendar e operar
 
-O horário proposto é 03h São Paulo. Se `timedatectl` confirmar servidor em UTC, use `CRON_SCHEDULE="0 6 * * *"`. Se o servidor estiver em America/Sao_Paulo, use `"0 3 * * *"`. Outros fusos exigem ajuste; `PREFERRED_TIMEZONE` não muda o cron.
+Somente na alternativa cron Linux: para 06h São Paulo, servidor UTC usa `CRON_SCHEDULE="0 9 * * *"`; servidor America/Sao_Paulo usa `"0 6 * * *"`. No loop vigente, usar sempre `0 6 * * *` com `PREFERRED_TIMEZONE=America/Sao_Paulo`, independentemente do relógio do host. Escolher um único agendador.
 
 ```bash
 bash scripts/setup_cron.sh
@@ -149,4 +149,4 @@ Reativar o agendamento somente após sucesso. O `.env` e o banco não são subst
 
 Banco e carga remotos funcionam. O objetivo analítico atual é estudar tempos e encontrar padrões; não há meta de prazo definida por etapa e isso não impede o estudo. Consultas e dicionário estão no [PRD analítico](PRD_ANALITICO.md).
 
-A instalação do executor na VPS aguarda identificação e validação do acesso SSH/console. Não há cron remoto confirmado. Código e documentação publicados em `main` no repositório informado, em 11/09/2026. Isso não equivale a implantação automática. Segredos, runtime e backups não foram incluídos no Git.
+O usuário instalou o executor no EasyPanel com webhook do GitHub. A versão atualizada, variáveis e próxima execução precisam ser conferidas pelo [prompt do painel](PROMPT_CLAUDE_EASYPANEL.md). Publicar no GitHub não comprova, sozinho, que o novo container está saudável. Segredos, runtime e backups não foram incluídos no Git.

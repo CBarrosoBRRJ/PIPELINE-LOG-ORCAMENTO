@@ -47,9 +47,9 @@ SELECT p.item_id, p.item_name AS projeto,
        s.status_label AS etapa,
        count(*) AS visitas,
        sum(f.duration_hours) AS horas_acumuladas
-FROM rede_globo.fct_item_status_interval f
-JOIN rede_globo.dim_item p ON p.item_sk = f.item_sk
-JOIN rede_globo.dim_status s ON s.status_sk = f.status_sk
+FROM orcamento.fct_item_status_interval f
+JOIN orcamento.dim_item p ON p.item_sk = f.item_sk
+JOIN orcamento.dim_status s ON s.status_sk = f.status_sk
 WHERE f.board_id = 18429499488
   AND f.item_id = :item_id
 GROUP BY p.item_id, p.item_name, s.status_id, s.status_label
@@ -85,11 +85,11 @@ WITH valores AS (
     GROUP BY board_id, item_id
 ), tempos AS (
     SELECT board_id, item_id, sum(duration_hours) AS horas_reconstruidas
-    FROM rede_globo.fct_item_status_interval
+    FROM orcamento.fct_item_status_interval
     GROUP BY board_id, item_id
 )
 SELECT p.item_id, p.item_name, v.valor_total, t.horas_reconstruidas
-FROM rede_globo.dim_item p
+FROM orcamento.dim_item p
 LEFT JOIN valores v USING (board_id, item_id)
 LEFT JOIN tempos t USING (board_id, item_id)
 WHERE p.board_id = 18429499488;
@@ -103,10 +103,10 @@ Um projeto pode ter duas pessoas: juntar a visita às duas atribuições duplica
 
 ```sql
 SELECT f.item_id, f.status_to, sum(f.duration_hours) AS horas
-FROM rede_globo.fct_item_status_interval f
+FROM orcamento.fct_item_status_interval f
 WHERE f.board_id = 18429499488
   AND EXISTS (
-      SELECT 1 FROM rede_globo.bridge_item_person b
+      SELECT 1 FROM orcamento.bridge_item_person b
       WHERE b.board_id = f.board_id AND b.item_id = f.item_id
         AND b.snapshot_date = f.snapshot_date
         AND b.person_id = :person_id
@@ -127,7 +127,7 @@ Para descobrir qual coluna Monday gerou cada atributo:
 ```sql
 SELECT column_id, column_title, column_type, analytical_attribute,
        is_extracted, is_modeled, is_present
-FROM rede_globo.meta_column_mapping
+FROM orcamento.meta_column_mapping
 WHERE board_id = 18429499488
 ORDER BY is_modeled DESC, column_title;
 ```

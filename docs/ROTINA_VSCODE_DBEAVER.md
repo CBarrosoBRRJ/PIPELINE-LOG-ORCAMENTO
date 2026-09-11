@@ -10,7 +10,7 @@ Preferência confirmada em 11/09/2026: desenvolver e analisar pelo VS Code/Pytho
 | DBeaver nesta máquina | Explorar tabelas, escrever SQL, conferir qualidade e indicadores |
 | GitHub | Versionar código, regras e documentação; distribuir versões |
 | PostgreSQL na VPS | Persistir dados e executar consultas SQL recebidas remotamente |
-| Executor agendado na VPS | Rodar o pipeline com o computador pessoal desligado; implantação ainda pendente |
+| Executor agendado na VPS | Rodar o pipeline com o computador pessoal desligado; instalado no EasyPanel; conferir atualização pelo prompt do painel |
 
 Não é necessário abrir o painel da VPS para consultar tabelas ou executar SQL autorizado. Acesso SSH pode ser usado pelo cliente para proteger a conexão, sem exigir comandos de administração a cada consulta. Configuração inicial, atualização do executor e incidentes de infraestrutura ainda exigem um responsável ou automação; não desaparecem por usar DBeaver.
 

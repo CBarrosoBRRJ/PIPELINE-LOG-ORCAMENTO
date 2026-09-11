@@ -26,8 +26,8 @@ As relações são impostas por FKs no PostgreSQL. O commit é único e as const
 -- Exemplo: sua_base tem um único registro por item e board.
 SELECT i.item_id, i.board_id, i.item_name, s.status_atual,
        s.sla_start_utc, s.lead_time_total_min, outra.seu_indicador
-FROM rede_globo.dim_item i
-LEFT JOIN rede_globo.fct_item_sla_summary s USING(item_id, board_id)
+FROM orcamento.dim_item i
+LEFT JOIN orcamento.fct_item_sla_summary s USING(item_id, board_id)
 LEFT JOIN sua_base outra USING(item_id, board_id);
 ```
 
@@ -38,7 +38,7 @@ Se `sua_base` tiver várias linhas por item, agregue antes do join ou preserve a
 ```sql
 SELECT board_id,column_id,column_title,column_type,analytical_attribute,
        is_extracted,is_modeled,is_present
-FROM rede_globo.meta_column_mapping
+FROM orcamento.meta_column_mapping
 WHERE board_id=18429499488
 ORDER BY is_modeled DESC,column_title;
 ```

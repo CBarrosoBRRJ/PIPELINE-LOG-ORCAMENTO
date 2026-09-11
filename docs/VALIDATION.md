@@ -1,5 +1,7 @@
 # Validação da implementação
 
+> Evidências históricas. A validação mais recente e o schema único `orcamento` estão em [ACEITE_PROVISORIO.md](ACEITE_PROVISORIO.md).
+
 Verificação em 10/09/2026 (São Paulo), com Monday real, PostgreSQL 16 em Docker e aplicação Python 3.11 no container.
 
 | Verificação | Resultado |

@@ -70,7 +70,7 @@ Perfil é distinto de sanidade de durações (`validate`), integridade do banco 
 
 ## Organização para outras áreas e pipelines
 
-Manter o schema atual `rede_globo` e seus nomes para não quebrar consumidores. Não renomear tabelas, IDs ou SKs silenciosamente. Para domínios novos, adotar schema por domínio, por exemplo `comercial` e `financeiro`, com Bronze/Prata/Ouro identificadas por prefixos e catálogo comum. É um padrão para novos projetos, não schemas já provisionados.
+Manter o schema atual `orcamento`. Em 11/09/2026 o usuário solicitou consolidar os nomes anteriores; houve reconciliação, backup com restore testado e atualização das consultas deste repositório. Consumidores externos precisam atualizar o schema. Não renomear tabelas, IDs ou SKs silenciosamente. Para domínios novos, adotar schema por domínio, por exemplo `comercial` e `financeiro`, com Bronze/Prata/Ouro identificadas por prefixos e catálogo comum. É um padrão para novos projetos, não schemas já provisionados.
 
 Cada pipeline novo deve ter configuração, identidade, watermark, execução, contrato e responsável próprios. Compartilhar bibliotecas de armazenamento, logs e validação quando suas interfaces estiverem estáveis; não duplicar o projeto trocando nomes indiscriminadamente. O pacote atual ainda contém regras específicas do Monday/SLA e não deve ser anunciado como framework universal.
 

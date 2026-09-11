@@ -1,10 +1,10 @@
 # SLA de projetos — Monday → PostgreSQL → BI
 
-Pipeline `sls_orcamento_pdd`: snapshots de itens, eventos de status, intervalos de permanência e indicadores diários. Python 3.11+, PostgreSQL 16/17, execução headless. Namespace atual na VPS: `dados_globo.rede_globo`; dataset futuro: `sla_orcamento_pdd`.
+Pipeline `sls_orcamento_pdd`: snapshots de itens, eventos de status, intervalos de permanência e indicadores diários. Python 3.11+, PostgreSQL 16/17, execução headless. Namespace atual na VPS: `dados_globo.orcamento`; dataset futuro: `sla_orcamento_pdd`.
 
 ## Executar com o banco da VPS
 
-O `.env` atual aponta para o PostgreSQL existente e seleciona `COMPOSE_FILE=compose.remote.yaml`. As tabelas e a carga histórica já foram transferidas e reconciliadas. O executor e o cron ainda precisam ser instalados no servidor; executar os comandos abaixo nesta máquina grava no banco remoto.
+O `.env` atual aponta para o PostgreSQL existente e seleciona `COMPOSE_FILE=compose.remote.yaml`. As tabelas e a carga histórica já foram transferidas e reconciliadas. O executor existente no EasyPanel usa `loop` às 06h São Paulo; executar os comandos abaixo nesta máquina grava no banco remoto. Confira [o aceite provisório](docs/ACEITE_PROVISORIO.md) e use [o prompt do painel](docs/PROMPT_CLAUDE_EASYPANEL.md) para validar a versão implantada. Para montar o relatório, comece pelo [PRD Power BI](docs/POWER_BI_PRD.md).
 
 ```bash
 docker compose build pipeline
@@ -90,7 +90,7 @@ Itens presentes somente nos logs são preservados, com atributos desconhecidos e
 | `gold_status_bottlenecks` | Ranking de tempo e fila, excluindo status finais |
 | `gold_intervals_local` | Datas locais para apresentação |
 
-No Power BI, conecte em **PostgreSQL**, banco `dados_globo`, schema `rede_globo`, por túnel/VPN ou conexão TLS configurada para a VPS e com usuário dedicado de leitura. O endereço do servidor depende desse acesso; o hostname Docker interno não resolve nesta máquina. Relacione `dim_item[item_id]` e `dim_status[status_id]` às tabelas fato. Para pessoas, use a bridge com `snapshot_date`; não some intervalos após um join de múltiplas pessoas sem controlar duplicação. Médias/percentis incluem intervalos abertos e inferidos nas views gerais; aplique filtros de qualidade nas análises que exigem apenas permanências comprovadas.
+No Power BI, conecte em **PostgreSQL**, banco `dados_globo`, schema `orcamento`, por túnel/VPN ou conexão TLS configurada para a VPS e com usuário dedicado de leitura. O endereço do servidor depende desse acesso; o hostname Docker interno não resolve nesta máquina. Relacione `dim_item[item_id]` e `dim_status[status_id]` às tabelas fato. Para pessoas, use a bridge com `snapshot_date`; não some intervalos após um join de múltiplas pessoas sem controlar duplicação. Médias/percentis incluem intervalos abertos e inferidos nas views gerais; aplique filtros de qualidade nas análises que exigem apenas permanências comprovadas.
 
 ## Qualidade e contratos
 

@@ -1,14 +1,16 @@
 # PRD — SLA de status de projetos no Monday
 
-Versão: 1.2. Atualizado em 11/09/2026. Projeto: `sls_orcamento_pdd`.
+Versão: 1.3. Atualizado em 11/09/2026. Projeto: `sls_orcamento_pdd`.
 
 Este documento reúne os requisitos originais e as decisões confirmadas durante a implementação. Deve ser lido antes de continuar o projeto, implantar a VPS ou migrar para BigQuery.
 
 ## Objetivo
 
+**Estado atual:** um banco `dados_globo`, um schema de negócio `orcamento`. Histórico consolidado, status finais corrigidos e backup com restauração conferida. Leia [ACEITE_PROVISORIO.md](docs/ACEITE_PROVISORIO.md) para evidências e pendências mínimas; [POWER_BI_PRD.md](docs/POWER_BI_PRD.md) para montar o relatório. O executor usa `loop` às 06h de São Paulo; a versão implantada deve ser conferida no painel.
+
 Medir quanto tempo cada elemento/projeto permanece em cada status, identificar filas e gargalos, relacionar os resultados com atributos de negócio e pessoas e permitir o cruzamento com futuras extrações pelo **ID original do item**.
 
-Fonte atual: quadro **Backlog 2026 | Agenciamento**, `board_id=18429499488`, coluna `status_19`. O pipeline é somente leitura na origem. Persistência atual na VPS: PostgreSQL 17, banco `dados_globo`, schema `rede_globo`. A origem local preservada usa PostgreSQL 16, banco `sla_workflow`, schema `sladb`. Destino futuro: BigQuery, dataset `sla_orcamento_pdd`, com consumo também no Databricks.
+Fonte atual: quadro **Backlog 2026 | Agenciamento**, `board_id=18429499488`, coluna `status_19`. O pipeline é somente leitura na origem. Persistência atual na VPS: PostgreSQL 17, banco `dados_globo`, schema `orcamento`. A origem local preservada usa PostgreSQL 16, banco `sla_workflow`, schema `sladb`. Destino futuro: BigQuery, dataset `sla_orcamento_pdd`, com consumo também no Databricks.
 
 ## Guia de uso analítico e implantação
 
@@ -23,7 +25,7 @@ O usuário confirmou que não existem metas por etapa: a fase atual é de estudo
 
 ## Rotina preferida de acesso
 
-O usuário trabalhará pelo VS Code/Python e pelo DBeaver, com dados no PostgreSQL da VPS. Guia: [ROTINA_VSCODE_DBEAVER.md](docs/ROTINA_VSCODE_DBEAVER.md). A operação cotidiana não deve exigir terminal da VPS; configuração inicial e manutenção de infraestrutura continuam necessárias. Execução Python local depende desta máquina ligada; o executor remoto agendado ainda deve ser implantado. Separar análise em leitura, escrita do pipeline e desenvolvimento/homologação; os papéis definitivos ainda não estão configurados.
+O usuário trabalhará pelo VS Code/Python e pelo DBeaver, com dados no PostgreSQL da VPS. Guia: [ROTINA_VSCODE_DBEAVER.md](docs/ROTINA_VSCODE_DBEAVER.md). A operação cotidiana não deve exigir terminal da VPS; configuração inicial e manutenção de infraestrutura continuam necessárias. Execução Python local depende desta máquina ligada; o executor remoto foi instalado pelo usuário no EasyPanel; conferir a versão atualizada conforme o aceite. Separar análise em leitura, escrita do pipeline e desenvolvimento/homologação; os papéis definitivos ainda não estão configurados.
 
 ## Qualidade e padrão da equipe
 
@@ -31,7 +33,7 @@ O usuário confirmou que organização, tratamento coerente entre camadas e docu
 
 Implementação: validação de entrada antes da transformação; limpeza textual em cópias, preservando Bronze; validação de tipos, obrigatoriedade, identidade, escopo e duração antes de publicar; NOT NULL em campos obrigatórios PostgreSQL; comando `quality-profile`. Nulos legítimos não são preenchidos artificialmente. Falhas críticas bloqueiam o lote e não avançam o watermark. Não há landing/quarentena durável independente implementada.
 
-Extensão para N projetos deve preservar IDs/SKs e declarar origem, conta, grão, domínio, responsáveis e consumidores. O MVP ainda é um quadro por configuração, com rebuild em memória; não apresentar esse padrão documental como execução distribuída pronta. Metas por etapa, D+1 fechado, alertas externos e executor/cron na VPS continuam pendentes.
+Extensão para N projetos deve preservar IDs/SKs e declarar origem, conta, grão, domínio, responsáveis e consumidores. O MVP ainda é um quadro por configuração, com rebuild em memória; não apresentar esse padrão documental como execução distribuída pronta. Metas por etapa, D+1 fechado e alertas externos continuam pendentes.
 
 ## Regras de negócio acordadas
 
@@ -43,6 +45,10 @@ Extensão para N projetos deve preservar IDs/SKs e declarar origem, conta, grão
 6. Tempo é corrido, em minutos/horas, incluindo finais de semana. Horas úteis não fazem parte do MVP.
 7. UTC na persistência; datas diárias e apresentação em America/Sao_Paulo.
 8. Não transformar indisponibilidade de histórico em fato: trechos iniciais/no movimento são explicitamente inferidos, e a data final também fica desconhecida quando não há evento que a comprove.
+
+## Organização por área
+
+`dados_globo` é o banco. `orcamento` é a divisão interna (schema) desta equipe. Futuras áreas podem usar outros schemas no mesmo banco, sem duplicar estas tabelas. Relações entre áreas precisam declarar origem, chave e cardinalidade; manter IDs e SKs estáveis. Os nomes anteriores `rede_globo` e `orcamentos` foram aposentados após reconciliação e backup testado. Atualizar consultas existentes no DBeaver/BI para `orcamento`.
 
 ## Estrutura relacional e identidade
 
@@ -85,7 +91,9 @@ Todas as colunas retornadas na extração de itens ficam no JSON Bronze. Marca, 
 
 ## Operação do MVP
 
-### Proposta de janela D+1 (aguardando definição com o usuário)
+### Evolução futura: janela D+1 (não implementada)
+
+O agendamento vigente é `loop` às **06h America/Sao_Paulo**, corte no início da execução. A proposta abaixo registra uma evolução futura; não configurar um segundo cron para ela.
 
 Proposta: executar às **03h America/Sao_Paulo**, publicar no BI até **04h** como objetivo operacional, com corte analítico às **00h do mesmo dia** (dia anterior completo). Exemplo: execução em 11/09 publica a referência de 10/09. Intervalos abertos são medidos somente até o corte analítico. A hora de conclusão não é garantia de SLA operacional sem monitoramento e medição na VPS.
 
@@ -199,9 +207,9 @@ Novas tabelas analíticas devem compartilhar `item_id`/`board_id`, preservar o g
 
 **Padrões permanentes:** UTC na persistência; nomes e grãos explícitos; original em Bronze; transformações independentes do banco; PK/FK e SK consistentes; transação antes de avançar watermark; erro com saída não zero; retentativas limitadas; logs sem segredos; diagnóstico de desconhecido sem inventar valores; testes de casos reais; documentação atualizada junto da mudança.
 
-**Implementado:** snapshots, descoberta de schema/status, catálogo, chaves naturais e SKs determinísticas, constraints PostgreSQL, testes, armazenamento local e PostgreSQL remoto com dados reconciliados, backfill/daily/replay, adapter/DDL/validações BQ e documentação. **Ainda não implantado:** executor/cron na VPS, BigQuery real, Databricks real, SCD2 de atributos, processamento distribuído, rebuild seletivo e alertas externos. Não apresentar essas evoluções como prontas em produção.
+**Implementado:** snapshots, descoberta de schema/status, catálogo, chaves naturais e SKs determinísticas, constraints PostgreSQL, testes, armazenamento local e PostgreSQL remoto com dados reconciliados, backfill/daily/replay, adapter/DDL/validações BQ e documentação. **Ainda não implantado:** BigQuery real, Databricks real, SCD2 de atributos, processamento distribuído, rebuild seletivo e alertas externos. Não apresentar essas evoluções como prontas em produção.
 
-**Decisões desta sessão:** manter `item_id`; início sempre em Entrada; Negócio Fechado previsto e dinâmico; distinguir evidência de inferência; PostgreSQL primeiro; SK aditiva sem quebrar chaves; mesma identidade no BQ; PostgreSQL da VPS configurado após o fornecimento do `.env`; acesso ao servidor pendente para instalar o executor e agendar.
+**Decisões desta sessão:** manter `item_id`; início sempre em Entrada; Negócio Fechado previsto e dinâmico; distinguir evidência de inferência; PostgreSQL primeiro; SK aditiva sem quebrar chaves; mesma identidade no BQ; PostgreSQL da VPS configurado após o fornecimento do `.env`; executor instalado pelo usuário no EasyPanel, com atualização final a conferir; somente o schema `orcamento` permanece ativo.
 
 O MVP deve passar testes unitários e integração PostgreSQL, backfill real, execução incremental real, sanidade de durações, idempotência e integridade referencial. A implantação remota e a migração BQ são etapas separadas, realizadas com o usuário.
 

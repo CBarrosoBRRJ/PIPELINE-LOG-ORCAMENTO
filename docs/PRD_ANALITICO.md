@@ -1,6 +1,6 @@
 # PRD analítico — permanência por etapa e gargalos
 
-Versão 1.0 — 11/09/2026. Complementa o [PRD principal](../PRD.md), que permanece como referência de arquitetura e manutenção. Banco atual: `dados_globo`, schema `rede_globo`.
+Versão 1.0 — 11/09/2026. Complementa o [PRD principal](../PRD.md), que permanece como referência de arquitetura e manutenção. Banco atual: `dados_globo`, schema `orcamento`.
 
 ## Pergunta principal e critério de sucesso
 
@@ -16,7 +16,7 @@ Guia de correlação entre bases, joins e montagem no Power BI: [RELACIONAMENTOS
 
 ## Como consultar agora no DBeaver
 
-1. Na conexão `dados_globo`, abra um editor SQL. As consultas usam `rede_globo` explicitamente, mesmo que a barra superior mostre `public`.
+1. Na conexão `dados_globo`, abra um editor SQL. As consultas usam `orcamento` explicitamente, mesmo que a barra superior mostre `public`.
 2. Abra [sql/006_analise_projeto.sql](../sql/006_analise_projeto.sql). Execute uma consulta por vez.
 3. Na consulta 1, informe parte do nome em `:termo`. Copie o `item_id` encontrado **sem pontos de formatação numérica**.
 4. Nas consultas 2 a 5, informe esse ID em `:item_id`. Se o editor não estiver configurado para parâmetros nomeados, substitua `:item_id` pelo número e `:termo` por um texto entre aspas simples.

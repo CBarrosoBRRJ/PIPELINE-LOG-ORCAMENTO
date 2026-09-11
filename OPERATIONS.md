@@ -2,13 +2,13 @@
 
 ## PostgreSQL existente na VPS (configuração atual)
 
-Banco `dados_globo`, schema `rede_globo`, PostgreSQL 17.11. Estrutura e dados históricos transferidos em 11/09/2026. A aplicação ainda executa nesta máquina contra o banco remoto; cron na VPS não instalado.
+Banco `dados_globo`, schema **`orcamento`**, PostgreSQL 17.11. Existe apenas uma área de dados deste pipeline. Os nomes anteriores foram consolidados com backup testado; não criar outro banco.
 
-1. Coloque o projeto em `/opt/sls_orcamento_pdd` e transfira o `.env` por canal seguro; aplique `chmod 600 .env`.
-2. Mantenha `COMPOSE_FILE=compose.remote.yaml` e `PG_DSN` vazio. Esse Compose não cria um banco. Configure `PG_HOST`/`PG_PORT` internos fornecidos pelo painel, `PG_DB=dados_globo` e `PG_SCHEMA=rede_globo`.
-3. Descubra a rede Docker do PostgreSQL no painel/SSH. Defina `PIPELINE_DOCKER_NETWORK` com o nome real e `PIPELINE_NETWORK_EXTERNAL=true`. Nunca crie uma rede substituta presumindo que o banco já estará nela.
-4. Rode `docker compose build pipeline`, `docker compose run --rm pipeline check-db`, `docker compose run --rm pipeline daily`, `docker compose run --rm pipeline validate` e `docker compose run --rm pipeline health`.
-5. Só após essa validação, instale o cron conforme a seção Agendar. O `daily` retoma o watermark já transferido; não é necessário apagar ou repetir a carga inicial.
+A aplicação existente no EasyPanel executa `sla-pipeline loop`: carga ao iniciar e depois às **06h America/Sao_Paulo**, com `CRON_SCHEDULE=0 6 * * *`. Manter uma réplica, sem cron adicional. O corte é o início da carga, não meia-noite/D+1.
+
+Siga [o prompt de conferência do EasyPanel](docs/PROMPT_CLAUDE_EASYPANEL.md) e [o aceite provisório](docs/ACEITE_PROVISORIO.md). Configure `PG_DB=dados_globo`, `PG_SCHEMA=orcamento`, host interno e porta 5432 na aplicação; preserve as credenciais. A compatibilidade temporária do código converte `PG_SCHEMA=orcamentos` para `orcamento`, mas o painel deve usar o nome correto explicitamente. Não retornar a um código anterior à consolidação com a variável antiga.
+
+Para comandos avulsos com Compose remoto, mantenha `COMPOSE_FILE=compose.remote.yaml`, `PG_DSN` vazio e rede interna real configurada. Esse Compose não cria um banco. Não executar carga manual enquanto a aplicação já está processando; o lock por quadro protege contra concorrência.
 
 Para acesso externo, a conexão testada estava sem TLS. A execução no servidor deve usar a rede interna; acesso remoto administrativo/BI requer túnel/VPN ou configuração TLS validada. `PG_SSLMODE=prefer` permite conexão sem TLS; `verify-full` exige endpoint/certificado compatíveis. As chaves `VPS_PG_*` são referências de endpoints, e `LOCAL_PG_*` preservam a origem: apenas `PG_*`/`PG_DSN` controlam o destino ativo.
 
@@ -39,28 +39,28 @@ docker compose --profile job run --rm pipeline health
 
 O PostgreSQL usa volume persistente. **Não execute `docker compose down -v`**: isso remove o volume. Trocar a senha no `.env` depois de criar o volume não altera a senha dentro do PostgreSQL; faça rotação via `ALTER ROLE` e então atualize o arquivo.
 
-## Agendar
+## Alternativa: cron Linux (não usar junto com o loop)
 
 ```bash
 bash scripts/setup_cron.sh
 crontab -l
 ```
 
-O script instala uma única linha marcada `sls_orcamento_pdd`, preservando outras tarefas. `CRON_SCHEDULE="0 6 * * *"` significa 06h **no timezone do servidor**. Confira com `timedatectl`; em servidor UTC, 06h corresponde a 03h em São Paulo. `PREFERRED_TIMEZONE` controla as datas analíticas e não modifica o relógio do cron. O usuário do cron precisa de acesso ao Docker e ao diretório `logs`.
+Para instalações que escolherem cron em vez do loop, o script instala uma única linha marcada `sls_orcamento_pdd`, preservando outras tarefas. `CRON_SCHEDULE="0 6 * * *"` significa 06h **no timezone do servidor**. Confira com `timedatectl`; em servidor UTC, 06h corresponde a 03h em São Paulo. `PREFERRED_TIMEZONE` controla as datas analíticas e não modifica o relógio do cron. O usuário do cron precisa de acesso ao Docker e ao diretório `logs`.
 
 `run_daily.sh` aplica `flock` e o PostgreSQL aplica advisory lock por board. O lock de banco é liberado automaticamente se a sessão cair. Agende um backfill periódico separado, por exemplo semanal, caso seja necessário recuperar eventos publicados com atraso maior que a sobreposição.
 
 ## Conferir cada execução
 
-- `logs/daily.log`: JSON por linha, páginas, eventos, duração da execução e contagens.
+- No EasyPanel, logs da aplicação; no modo cron, `logs/daily.log`: eventos, duração e contagens.
 - `/app/runtime/status_<board_id>.json` no volume `runtime_data`: último resultado, gravado por substituição atômica. Em execução Python local, fica na pasta `runtime/`.
-- `rede_globo.etl_run`: execuções bem-sucedidas e respectivas métricas.
-- `rede_globo.etl_watermark`: corte do último commit completo.
-- `rede_globo.data_quality_issue`: ausência de histórico, status vazio, divergências, itens ausentes.
+- `orcamento.etl_run`: execuções bem-sucedidas e respectivas métricas.
+- `orcamento.etl_watermark`: corte do último commit completo.
+- `orcamento.data_quality_issue`: ausência de histórico, status vazio, divergências, itens ausentes.
 
 Para ler o estado do container: `docker compose --profile job run --rm --entrypoint cat pipeline /app/runtime/status_18429499488.json`. Os estados de execuções Python locais e Docker ficam em locais distintos; use um único modo no cron.
 
-Falhas ficam no stdout/arquivo de estado. Não são gravadas como sucesso no banco. Monitore exit code e idade do arquivo; `health` falha após `RUN_WINDOW_HOURS + 2` horas ou se o último status não for sucesso. As contagens de inseridos são calculadas contra o estado anterior sob lock; `upserted_existing_events` conta IDs já existentes, não necessariamente valores alterados.
+No `loop`, falhas ficam nos logs/arquivo de estado e o processo espera o próximo ciclo diário. Isso não dispara notificação externa; `health` deve ser acompanhado. Em comando avulso, falha retorna código não zero. Não são gravadas como sucesso no banco. Monitore exit code e idade do arquivo; `health` falha após `RUN_WINDOW_HOURS + 2` horas ou se o último status não for sucesso. As contagens de inseridos são calculadas contra o estado anterior sob lock; `upserted_existing_events` conta IDs já existentes, não necessariamente valores alterados.
 
 Copie `scripts/logrotate.conf` para `/etc/logrotate.d/sls-orcamento-pdd`, ajustando caminho e `su` ao usuário que executa o cron. Backups não substituem retenção dos logs da origem.
 
@@ -102,7 +102,7 @@ Teste a restauração num banco separado e mantenha uma cópia fora da VPS. Apó
 
 No modo local com banco próprio, o banco está publicado apenas em loopback. Na VPS atual existe porta externa; restrinja o acesso ao configurar o servidor. Use túnel SSH/VPN ou gateway perto da VPS para o Power BI. Para teste via túnel: `ssh -L 55432:127.0.0.1:55432 usuario@VPS`. O comando precisa do host/usuário reais; ajuste as portas ao endpoint real do banco.
 
-Crie um papel dedicado de leitura ao configurar BI; conceda `USAGE ON SCHEMA rede_globo`, `SELECT ON ALL TABLES IN SCHEMA rede_globo` e privilégios padrão de SELECT para objetos futuros. Não use a conta administrativa do ETL no compartilhamento do relatório. O pipeline trata pessoas como atribuições do projeto, não como prova de quem causou a demora.
+Crie um papel dedicado de leitura ao configurar BI; conceda `USAGE ON SCHEMA orcamento`, `SELECT ON ALL TABLES IN SCHEMA orcamento` e privilégios padrão de SELECT para objetos futuros. Não use a conta administrativa do ETL no compartilhamento do relatório. O pipeline trata pessoas como atribuições do projeto, não como prova de quem causou a demora.
 
 
 ## Evolução de contratos e nulos
