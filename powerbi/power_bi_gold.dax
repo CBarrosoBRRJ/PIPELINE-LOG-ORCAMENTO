@@ -1,0 +1,40 @@
+// Criar UMA medida por vez. Nome importado com espaço; argumentos com vírgula.
+Projetos = DISTINCTCOUNT('orcamento gold_projeto_status'[item_sk])
+
+Passagens = COUNTROWS('orcamento gold_projeto_status')
+
+Horas por Status = SUM('orcamento gold_projeto_status'[duracao_horas])
+
+Retornos = CALCULATE(COUNTROWS('orcamento gold_projeto_status'), 'orcamento gold_projeto_status'[eh_retorno] = TRUE())
+
+Projetos na Fila = CALCULATE([Projetos], 'orcamento gold_projeto_status'[projeto_na_fila] = TRUE())
+
+Passagens Observadas Encerradas = CALCULATE([Passagens], 'orcamento gold_projeto_status'[elegivel_comparacao] = TRUE())
+
+Projetos da Amostra = CALCULATE([Projetos], 'orcamento gold_projeto_status'[elegivel_comparacao] = TRUE())
+
+Horas Observadas Encerradas = SUM('orcamento gold_projeto_status'[horas_observadas_encerradas])
+
+Media por Passagem h = AVERAGE('orcamento gold_projeto_status'[horas_observadas_encerradas])
+
+Mediana por Passagem h = MEDIAN('orcamento gold_projeto_status'[horas_observadas_encerradas])
+
+P95 por Passagem h = PERCENTILEX.INC(FILTER('orcamento gold_projeto_status', 'orcamento gold_projeto_status'[elegivel_comparacao] = TRUE()), 'orcamento gold_projeto_status'[duracao_horas], 0.95)
+
+Tempo desde Entrada h = IF(HASONEVALUE('orcamento gold_projeto_status'[item_sk]), MAX('orcamento gold_projeto_status'[tempo_desde_entrada_horas]))
+
+Tempo no Status Atual h = IF(HASONEVALUE('orcamento gold_projeto_status'[item_sk]), MAX('orcamento gold_projeto_status'[tempo_status_atual_horas]))
+
+Status Atual Projeto = IF(HASONEVALUE('orcamento gold_projeto_status'[item_sk]), SELECTEDVALUE('orcamento gold_projeto_status'[status_atual_nome]))
+
+Etapas Percorridas = IF(HASONEVALUE('orcamento gold_projeto_status'[item_sk]), DISTINCTCOUNT('orcamento gold_projeto_status'[status_id]))
+
+Ultimo Corte = MAX('orcamento gold_projeto_status'[corte_local])
+
+Mediana Validacao Talento h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('orcamento gold_projeto_status'[status_nome] = "Em revisão - Validação Talento"))
+
+Mediana Retorno Marca h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('orcamento gold_projeto_status'[status_nome] = "Em elaboração - Retorno Marca/Executivo"))
+
+Mediana Feedback h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('orcamento gold_projeto_status'[status_nome] = "Aguardando Feedback"))
+
+Projetos Amostra Talento = CALCULATE([Projetos da Amostra], KEEPFILTERS('orcamento gold_projeto_status'[status_nome] = "Em revisão - Validação Talento"))

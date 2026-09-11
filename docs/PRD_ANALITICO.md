@@ -1,5 +1,7 @@
 # PRD analítico — permanência por etapa e gargalos
 
+**Versão 2:** o consumo principal passou para [gold_projeto_status](OURO_CONSUMO.md). As 16 tabelas descritas abaixo permanecem técnicas/legadas; acrescentamos Gold, catálogo de identidades e snapshot de regras (19 tabelas). Não usar as views antigas, sem as novas exclusões, como se fossem o mesmo conjunto de projetos da Gold.
+
 Versão 1.0 — 11/09/2026. Complementa o [PRD principal](../PRD.md), que permanece como referência de arquitetura e manutenção. Banco atual: `dados_globo`, schema `orcamento`.
 
 ## Pergunta principal e critério de sucesso

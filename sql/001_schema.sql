@@ -112,6 +112,36 @@ CREATE TABLE IF NOT EXISTS sladb.meta_column_mapping (
 ;
 
 
+CREATE TABLE IF NOT EXISTS sladb.meta_entity_mapping (
+	board_id BIGINT NOT NULL,
+	entity_type TEXT NOT NULL,
+	source_key TEXT NOT NULL,
+	source_text TEXT NOT NULL,
+	canonical_id TEXT,
+	canonical_name TEXT,
+	entity_kind TEXT NOT NULL,
+	review_status TEXT NOT NULL,
+	reviewed_by TEXT,
+	updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	PRIMARY KEY (board_id, entity_type, source_key),
+	CONSTRAINT fk_meta_entity_mapping_c3348c56 FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED
+)
+
+;
+
+
+CREATE TABLE IF NOT EXISTS sladb.meta_gold_rule_snapshot (
+	versao_regras TEXT NOT NULL,
+	board_id BIGINT NOT NULL,
+	conteudo JSONB NOT NULL,
+	registrado_em TIMESTAMP WITH TIME ZONE NOT NULL,
+	PRIMARY KEY (versao_regras),
+	CONSTRAINT fk_meta_gold_rule_snapsho_54d2df14 FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED
+)
+
+;
+
+
 CREATE TABLE IF NOT EXISTS sladb.dim_item (
 	item_id BIGSERIAL NOT NULL,
 	board_id BIGINT NOT NULL,
@@ -351,3 +381,77 @@ CREATE TABLE IF NOT EXISTS sladb.silver_monday_status_event_stg (
 )
 
 ;
+
+
+CREATE TABLE IF NOT EXISTS sladb.gold_projeto_status (
+	interval_id TEXT NOT NULL,
+	board_id BIGINT NOT NULL,
+	item_id BIGINT NOT NULL,
+	status_id TEXT NOT NULL,
+	projeto_nome TEXT NOT NULL,
+	status_nome TEXT NOT NULL,
+	ordem_status_quadro INTEGER,
+	status_final BOOLEAN NOT NULL,
+	ordem_etapa INTEGER NOT NULL,
+	passagem_numero_no_status INTEGER NOT NULL,
+	eh_retorno BOOLEAN NOT NULL,
+	eh_primeiro_registro BOOLEAN NOT NULL,
+	eh_ultimo_registro BOOLEAN NOT NULL,
+	entrada_status_utc TIMESTAMP WITH TIME ZONE NOT NULL,
+	saida_status_utc TIMESTAMP WITH TIME ZONE,
+	entrada_status_local TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+	saida_status_local TIMESTAMP WITHOUT TIME ZONE,
+	corte_utc TIMESTAMP WITH TIME ZONE NOT NULL,
+	corte_local TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+	duracao_minutos FLOAT NOT NULL,
+	duracao_horas FLOAT NOT NULL,
+	intervalo_aberto BOOLEAN NOT NULL,
+	qualidade_historico TEXT NOT NULL,
+	elegivel_comparacao BOOLEAN NOT NULL,
+	horas_observadas_encerradas FLOAT,
+	status_atual_id TEXT NOT NULL,
+	status_atual_nome TEXT NOT NULL,
+	projeto_ativo BOOLEAN NOT NULL,
+	projeto_na_fila BOOLEAN NOT NULL,
+	status_atual_divergente BOOLEAN NOT NULL,
+	entrada_comprovada_utc TIMESTAMP WITH TIME ZONE,
+	finalizado_em_utc TIMESTAMP WITH TIME ZONE,
+	tempo_desde_entrada_horas FLOAT,
+	tempo_status_atual_horas FLOAT,
+	marca_chave TEXT,
+	marca_nome TEXT,
+	marca_situacao TEXT NOT NULL,
+	talento_chave TEXT,
+	talento_nome TEXT,
+	talento_origem TEXT,
+	talento_situacao TEXT NOT NULL,
+	responsavel_orcamento TEXT,
+	responsaveis_orcamento_json JSONB NOT NULL,
+	quantidade_responsaveis_orcamento INTEGER NOT NULL,
+	responsavel_situacao TEXT NOT NULL,
+	talent_manager TEXT,
+	gp TEXT,
+	audiencia TEXT,
+	conteudo TEXT,
+	producao TEXT,
+	pessoas_referencia_json JSONB NOT NULL,
+	cadastro_referencia_utc TIMESTAMP WITH TIME ZONE,
+	versao_regras TEXT NOT NULL,
+	board_sk TEXT NOT NULL,
+	item_sk TEXT NOT NULL,
+	status_sk TEXT NOT NULL,
+	PRIMARY KEY (interval_id),
+	CONSTRAINT fk_gold_projeto_status_3e6fde19 FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_gold_projeto_status_d612ad30 FOREIGN KEY(item_id) REFERENCES sladb.dim_item (item_id) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_gold_projeto_status_a35625af FOREIGN KEY(status_id) REFERENCES sladb.dim_status (status_id) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_gold_projeto_status_fec14abf FOREIGN KEY(versao_regras) REFERENCES sladb.meta_gold_rule_snapshot (versao_regras) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_gold_projeto_status_f2b260a7 FOREIGN KEY(interval_id) REFERENCES sladb.fct_item_status_interval (interval_id) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_gold_projeto_status_15cb5839 FOREIGN KEY(status_atual_id) REFERENCES sladb.dim_status (status_id) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_sk_gold_projeto_status_6758164f FOREIGN KEY(board_id, board_sk) REFERENCES sladb.dim_board (board_id, board_sk) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_sk_gold_projeto_status_2e6468b2 FOREIGN KEY(item_id, item_sk) REFERENCES sladb.dim_item (item_id, item_sk) DEFERRABLE INITIALLY DEFERRED,
+	CONSTRAINT fk_sk_gold_projeto_status_60f72d33 FOREIGN KEY(status_id, status_sk) REFERENCES sladb.dim_status (status_id, status_sk) DEFERRABLE INITIALLY DEFERRED
+)
+
+;
+
+CREATE INDEX IF NOT EXISTS ix_gold_projeto_status ON sladb.gold_projeto_status (board_id, item_id, ordem_etapa);

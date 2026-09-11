@@ -1,8 +1,12 @@
 # PRD — SLA de status de projetos no Monday
 
-Versão: 1.3. Atualizado em 11/09/2026. Projeto: `sls_orcamento_pdd`.
+Versão: 2.0. Atualizado em 11/09/2026. Projeto: `sls_orcamento_pdd`.
 
 Este documento reúne os requisitos originais e as decisões confirmadas durante a implementação. Deve ser lido antes de continuar o projeto, implantar a VPS ou migrar para BigQuery.
+
+**Versão 2 implementada e publicada no banco:** ETL e regras no código, `orcamento.gold_projeto_status` como tabela de consumo e exclusão integral das análises dos projetos com atribuição inválida de talento. Comece pelo [guia de consumo](docs/OURO_CONSUMO.md) e pelas [evidências](docs/VALIDACAO_OURO.md). A [prévia](docs/PREVIA_OURO_CONSUMO.md) conserva as decisões de desenho. As tabelas técnicas continuam preservadas; o Power BI novo importa somente a Gold. Conferir separadamente a versão do executor no EasyPanel após o push.
+
+Formato de consumo refinado pelo usuário: uma linha por passagem do projeto pelo status, com entrada, saída, duração, Marca, Talento, responsável da coluna Orçamento (`person`), ordem cronológica e retorno true/false. Primeira/última linha referem-se ao histórico disponível, sem fabricar Entrada quando não comprovada. Responsáveis por orçamento são distintos da futura definição de responsáveis por status.
 
 ## Objetivo
 
@@ -14,7 +18,7 @@ Fonte atual: quadro **Backlog 2026 | Agenciamento**, `board_id=18429499488`, col
 
 ## Guia de uso analítico e implantação
 
-O objetivo prioritário confirmado é selecionar o projeto X, conhecer sua trajetória e medir quanto tempo permaneceu em cada status, identificando gargalos por etapa. A tabela principal é `fct_item_status_interval`; o cadastro `dim_item` apenas identifica o projeto.
+O objetivo prioritário é selecionar o projeto X, conhecer sua trajetória e medir o tempo em cada status. O consumo novo usa `gold_projeto_status`, uma linha por passagem, já com nomes, datas locais, responsáveis e retorno. `fct_item_status_interval` continua sendo o histórico técnico completo; `dim_item` identifica o projeto. As exclusões são aplicadas à Gold, não ao histórico original.
 
 - [PRD analítico](docs/PRD_ANALITICO.md): as 16 tabelas, as quatro views, KPIs, regras de qualidade, retornos e proposta de relatório.
 - [Relacionamentos e KPIs](docs/RELACIONAMENTOS_E_KPIS.md): chaves, cardinalidade, joins e modelo inicial para Power BI.
@@ -29,13 +33,15 @@ O usuário trabalhará pelo VS Code/Python e pelo DBeaver, com dados no PostgreS
 
 ## Qualidade e padrão da equipe
 
-O usuário confirmou que organização, tratamento coerente entre camadas e documentação completa são requisitos permanentes para este e os próximos pipelines. Padrão: [ARQUITETURA_E_GOVERNANCA.md](docs/ARQUITETURA_E_GOVERNANCA.md). Contrato de todos os campos: [CONTRATOS_DE_DADOS.md](docs/CONTRATOS_DE_DADOS.md), gerado do metadata e contrato executável 1.0.0.
+O usuário confirmou que organização, tratamento coerente entre camadas e documentação completa são requisitos permanentes. Padrão: [ARQUITETURA_E_GOVERNANCA.md](docs/ARQUITETURA_E_GOVERNANCA.md). Contrato de todos os campos: [CONTRATOS_DE_DADOS.md](docs/CONTRATOS_DE_DADOS.md), gerado do metadata e contrato executável 2.0.0. São 19 tabelas e quatro views legadas, com uma tabela principal de consumo.
 
 Implementação: validação de entrada antes da transformação; limpeza textual em cópias, preservando Bronze; validação de tipos, obrigatoriedade, identidade, escopo e duração antes de publicar; NOT NULL em campos obrigatórios PostgreSQL; comando `quality-profile`. Nulos legítimos não são preenchidos artificialmente. Falhas críticas bloqueiam o lote e não avançam o watermark. Não há landing/quarentena durável independente implementada.
 
 Extensão para N projetos deve preservar IDs/SKs e declarar origem, conta, grão, domínio, responsáveis e consumidores. O MVP ainda é um quadro por configuração, com rebuild em memória; não apresentar esse padrão documental como execução distribuída pronta. Metas por etapa, D+1 fechado e alertas externos continuam pendentes.
 
 ## Regras de negócio acordadas
+
+Na versão 2, projetos com ambas as colunas de talento preenchidas, múltiplos talentos ou coletivos identificados são excluídos de todos os indicadores Gold. A decisão usa o cadastro até o corte; correções podem reincluir o histórico. Regras completas, tratamento de pendências de identidade e catálogo revisável estão em [OURO_CONSUMO.md](docs/OURO_CONSUMO.md). Cada publicação conserva a versão em `meta_gold_rule_snapshot`; nenhuma similaridade de nome é promovida automaticamente a identidade canônica.
 
 1. O marco inicial do SLA total é sempre **Entrada**. Usar a primeira transição disponível para esse status; reentrada não reinicia o total.
 2. Na ausência do evento inicial, registrar `sla_start_quality=unavailable`, diagnóstico `inicio_entrada_nao_comprovado` e SLA total nulo. Não tratar outro status como início nem inventar a data de Entrada.

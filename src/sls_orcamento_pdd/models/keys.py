@@ -7,6 +7,11 @@ entity, not an SCD2 version. A versioned dimension must get a separate version k
 from uuid import NAMESPACE_URL, uuid5
 
 SURROGATE_COLUMNS = {
+    "gold_projeto_status": {
+        "board_sk": ("board_id", "board"),
+        "item_sk": ("item_id", "item"),
+        "status_sk": ("status_id", "status"),
+    },
     "dim_board": {"board_sk": ("board_id", "board")},
     "dim_item": {
         "item_sk": ("item_id", "item"),

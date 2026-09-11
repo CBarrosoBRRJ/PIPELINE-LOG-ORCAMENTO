@@ -1,6 +1,6 @@
 # Contrato de campos — referência gerada
 
-Versão 1.0.0. Fonte: `models/schemas.py` e `models/contracts.py`.
+Versão 2.0.0. Fonte: `models/schemas.py` e `models/contracts.py`.
 Regenerar com `python scripts/generate_contract_docs.py`.
 
 Significado de negócio das tabelas: [PRD_ANALITICO.md](PRD_ANALITICO.md).
@@ -8,8 +8,100 @@ Política de nulos e tratamento: [ARQUITETURA_E_GOVERNANCA.md](ARQUITETURA_E_GOV
 
 `id`: inteiro positivo de 64 bits; `text`: texto; `time`: timestamp com fuso;
 `date`: data; `num`: número finito não negativo; `bool`: booleano; `json`: objeto/lista.
+`localtime`: data/hora local sem fuso, para apresentação; referência temporal continua em UTC.
 Campos opcionais aceitam NULL. Campos obrigatórios não aceitam NULL e textos obrigatórios não aceitam vazio.
 SKs são calculadas antes da gravação; devem corresponder ao ID original. A obrigatoriedade de SK dimensional é imposta pelo banco.
+
+## `meta_gold_rule_snapshot`
+
+Chave primária: `versao_regras`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `versao_regras` | text | Sim | — |
+| `board_id` | id | Sim | dim_board.board_id |
+| `conteudo` | json | Sim | — |
+| `registrado_em` | time | Sim | — |
+
+## `meta_entity_mapping`
+
+Chave primária: `board_id,entity_type,source_key`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `board_id` | id | Sim | dim_board.board_id |
+| `entity_type` | text | Sim | — |
+| `source_key` | text | Sim | — |
+| `source_text` | text | Sim | — |
+| `canonical_id` | text | Não | — |
+| `canonical_name` | text | Não | — |
+| `entity_kind` | text | Sim | — |
+| `review_status` | text | Sim | — |
+| `reviewed_by` | text | Não | — |
+| `updated_at` | time | Sim | — |
+
+## `gold_projeto_status`
+
+Chave primária: `interval_id`.
+
+| Campo | Tipo | Obrigatório | Referência |
+|---|---|---|---|
+| `interval_id` | text | Sim | fct_item_status_interval.interval_id |
+| `board_id` | id | Sim | dim_board.board_id |
+| `item_id` | id | Sim | dim_item.item_id |
+| `status_id` | text | Sim | dim_status.status_id |
+| `projeto_nome` | text | Sim | — |
+| `status_nome` | text | Sim | — |
+| `ordem_status_quadro` | int | Não | — |
+| `status_final` | bool | Sim | — |
+| `ordem_etapa` | int | Sim | — |
+| `passagem_numero_no_status` | int | Sim | — |
+| `eh_retorno` | bool | Sim | — |
+| `eh_primeiro_registro` | bool | Sim | — |
+| `eh_ultimo_registro` | bool | Sim | — |
+| `entrada_status_utc` | time | Sim | — |
+| `saida_status_utc` | time | Não | — |
+| `entrada_status_local` | localtime | Sim | — |
+| `saida_status_local` | localtime | Não | — |
+| `corte_utc` | time | Sim | — |
+| `corte_local` | localtime | Sim | — |
+| `duracao_minutos` | num | Sim | — |
+| `duracao_horas` | num | Sim | — |
+| `intervalo_aberto` | bool | Sim | — |
+| `qualidade_historico` | text | Sim | — |
+| `elegivel_comparacao` | bool | Sim | — |
+| `horas_observadas_encerradas` | num | Não | — |
+| `status_atual_id` | text | Sim | dim_status.status_id |
+| `status_atual_nome` | text | Sim | — |
+| `projeto_ativo` | bool | Sim | — |
+| `projeto_na_fila` | bool | Sim | — |
+| `status_atual_divergente` | bool | Sim | — |
+| `entrada_comprovada_utc` | time | Não | — |
+| `finalizado_em_utc` | time | Não | — |
+| `tempo_desde_entrada_horas` | num | Não | — |
+| `tempo_status_atual_horas` | num | Não | — |
+| `marca_chave` | text | Não | — |
+| `marca_nome` | text | Não | — |
+| `marca_situacao` | text | Sim | — |
+| `talento_chave` | text | Não | — |
+| `talento_nome` | text | Não | — |
+| `talento_origem` | text | Não | — |
+| `talento_situacao` | text | Sim | — |
+| `responsavel_orcamento` | text | Não | — |
+| `responsaveis_orcamento_json` | json | Sim | — |
+| `quantidade_responsaveis_orcamento` | int | Sim | — |
+| `responsavel_situacao` | text | Sim | — |
+| `talent_manager` | text | Não | — |
+| `gp` | text | Não | — |
+| `audiencia` | text | Não | — |
+| `conteudo` | text | Não | — |
+| `producao` | text | Não | — |
+| `pessoas_referencia_json` | json | Sim | — |
+| `cadastro_referencia_utc` | time | Não | — |
+| `versao_regras` | text | Sim | meta_gold_rule_snapshot.versao_regras |
+| `board_sk` | text | Sim | — |
+| `item_sk` | text | Sim | — |
+| `status_sk` | text | Sim | — |
 
 ## `dim_board`
 

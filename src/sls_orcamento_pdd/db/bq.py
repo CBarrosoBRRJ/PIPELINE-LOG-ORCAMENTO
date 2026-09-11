@@ -28,11 +28,13 @@ BQ_TYPES = {
     "int": "INT64",
     "bool": "BOOL",
     "time": "TIMESTAMP",
+    "localtime": "DATETIME",
     "date": "DATE",
     "num": "FLOAT64",
     "json": "JSON",
 }
 PARTITIONS = {
+    "gold_projeto_status": "DATE(entrada_status_utc)",
     "bronze_monday_activity_log_raw": "DATE(event_at_utc)",
     "bronze_monday_item_snapshot_raw": "snapshot_date",
     "bronze_monday_board_schema_raw": "snapshot_date",
@@ -268,9 +270,14 @@ class BigQueryStore:
                 )
                 columns = ",".join(f"`{k}`" for k in fields)
                 values = ",".join(f"S.`{k}`" for k in fields)
+                matched = (
+                    ""
+                    if name in {"meta_entity_mapping", "meta_gold_rule_snapshot"}
+                    else f"WHEN MATCHED THEN UPDATE SET {updates} "
+                )
                 script.append(
                     f"MERGE {target} T USING `{stage_id}` S ON {on} "
-                    f"WHEN MATCHED THEN UPDATE SET {updates} "
+                    f"{matched}"
                     f"WHEN NOT MATCHED THEN INSERT ({columns}) VALUES ({values});"
                 )
             script.extend(integrity_assertions(self.prefix, payload.keys()))

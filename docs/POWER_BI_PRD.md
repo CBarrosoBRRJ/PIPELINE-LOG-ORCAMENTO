@@ -1,6 +1,22 @@
 # PRD do Power BI — estudo de permanência e gargalos
 
+**Modelo atual, versão 2:** importe somente `orcamento.gold_projeto_status` e siga [OURO_CONSUMO.md](OURO_CONSUMO.md). Tratamento, exclusões e responsáveis agora são produzidos no Python. Use [as medidas novas](../powerbi/power_bi_gold.dax). Não aplicar a expansão manual de talentos ou os relacionamentos antigos ao novo modelo. O restante deste arquivo fica como referência do modelo anterior; layout HTML será construído depois. Publicação: [VALIDACAO_OURO.md](VALIDACAO_OURO.md).
+
 Versão 1.0, 11/09/2026. Consulte [ACEITE_PROVISORIO.md](ACEITE_PROVISORIO.md) para o estado atual da carga e do deploy.
+
+## Convenção observada no Power BI Desktop
+
+Nesta instalação, o conector importou o schema e a tabela separados por espaço. Por exemplo, `orcamento.dim_status` no PostgreSQL aparece como `'orcamento dim_status'` no DAX. O editor DAX instalado usa vírgula (`,`) como separador de argumentos. Todas as novas medidas do arquivo PBIX devem seguir os nomes efetivamente exibidos no painel Campos e essa configuração de separador.
+
+Para o relatório, `orcamento gold_intervals_local` pode substituir `orcamento fct_item_status_interval`: possui o mesmo grão de uma linha por visita e acrescenta os horários locais. Não importar e somar as duas fontes no mesmo modelo.
+
+O usuário escolheu **HTML Content para a apresentação final**. Primeiro estruturar modelo e medidas; depois implementar HTML/CSS. O roteiro vigente está em [POWER_BI_ESTRUTURA_HTML.md](POWER_BI_ESTRUTURA_HTML.md). Os visuais nativos abaixo são referências de análise/conferência, não a especificação do layout final.
+
+**Atualização de Talento:** pessoas podem aparecer em `talento` (Talentos Exclusivos) e `intervenciencia` (Interveniência). A segunda coluna também contém outros tipos de texto, e a primeira admite múltiplas seleções. O ranking completo depende de identidade revisada e ponte por visita; a antiga dimensão baseada somente em `talento` não cobre a regra. Correção do erro de chaves em branco e roteiro de revisão: [CORRECAO_MARCA_TALENTO.md](CORRECAO_MARCA_TALENTO.md).
+
+Escopo confirmado do ranking de talento: **somente pessoas individuais**. Duplas, coletivos, empresas e descrições ficam fora desse ranking, com classificação e preservação da origem. Identidades ambíguas ficam pendentes, sem unir apelidos por suposição.
+
+Correções das orientações anteriores: relações 1:1 no Power BI sempre filtram nos dois sentidos; para filtro único do cadastro para o resumo, configurar 1:N no modelo, mantendo os dados únicos. A medida anteriormente chamada `Projetos em Validação` conta projetos com visitas de validação encerradas, não fila atual. Renomear para `Projetos com Validação Encerrada`. O usuário confirmou duas medições separadas para Marca: `Em elaboração - Retorno Marca/Executivo` e `Aguardando Feedback`. A espera do Talento usa `Em revisão - Validação Talento`, separada de Talent Manager. As medidas genéricas que buscam `Validação` não medem essas duas etapas da Marca.
 
 ## Objetivo e base de consumo
 
@@ -105,3 +121,18 @@ Nova base de outra área: conservar origem e IDs, verificar cardinalidade, agreg
 - Fonte de referência: somente `orcamento`. Não importar Bronze inteira no primeiro relatório sem necessidade.
 
 O banco é provisório para estudo e futura migração ao BQ da Globo. Este documento orienta a construção; arquivo `.pbix`, gateway e atualização agendada do Power BI ainda não foram criados/testados.
+
+## Roteiro dos visuais de Marca e Talento
+
+Roteiro anterior para conferência nativa. A apresentação final seguirá o guia HTML acima; não é necessário construir ou formatar estas tabelas para depois descartá-las.
+
+Use somente visitas com `history_quality = "observed"`, `is_open_interval = FALSE()` e status contendo `Validação`. No corte verificado havia 105 visitas encerradas e observadas, em 81 projetos; 94 visitas tinham Marca e 78 tinham Talento. Exibir sempre o tamanho da amostra.
+
+1. Insira o visual **Tabela**.
+2. Para Marca, adicione `orcamento gold_intervals_local[marca]`, `Mediana Validação h`, `Média Validação h` e `Projetos em Validação`.
+3. Nos filtros do visual, exclua Marca vazia e aplique `Projetos em Validação >= 5`.
+4. Ordene `Mediana Validação h` de forma decrescente. Mediana é o ranking principal; média e quantidade da amostra dão contexto.
+5. Aplique barras de dados à mediana e formate horas com uma casa decimal.
+6. Duplique o visual e substitua somente `marca` por `talento` para preservar filtros e formatação.
+
+Não usar soma acumulada para dizer quem “demora mais”: grupos com mais projetos acumulam mais horas mesmo quando cada visita é rápida. Um ranking categórico mostra associação com o tempo observado; não prova causalidade.

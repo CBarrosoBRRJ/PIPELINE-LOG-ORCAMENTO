@@ -1,5 +1,7 @@
 # Chaves e uso por outras análises
 
+Versão 2 adiciona `gold_projeto_status`, cuja PK é o `interval_id` existente, com FKs para intervalo, projeto, quadro, status e versão de regras. IDs/SKs não mudaram. `meta_entity_mapping` tem PK quadro/tipo/chave de texto; `meta_gold_rule_snapshot` guarda conteúdo imutável por versão. O contrato gerado contém os campos; o [guia Gold](OURO_CONSUMO.md) explica uso e exclusões.
+
 O elemento do Monday é `dim_item.item_id` (BIGINT); o valor é o ID original da API, não uma sequência interna. O quadro é `dim_board.board_id`. `event_id` preserva o ID de cada log.
 
 ```mermaid

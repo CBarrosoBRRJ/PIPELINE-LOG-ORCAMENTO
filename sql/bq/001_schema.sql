@@ -90,6 +90,32 @@ CREATE TABLE IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}.meta_column_mapping` (
 )
 CLUSTER BY board_id;
 
+CREATE TABLE IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}.meta_entity_mapping` (
+  `board_id` INT64 NOT NULL,
+  `entity_type` STRING NOT NULL,
+  `source_key` STRING NOT NULL,
+  `source_text` STRING NOT NULL,
+  `canonical_id` STRING,
+  `canonical_name` STRING,
+  `entity_kind` STRING NOT NULL,
+  `review_status` STRING NOT NULL,
+  `reviewed_by` STRING,
+  `updated_at` TIMESTAMP NOT NULL,
+  PRIMARY KEY (`board_id`, `entity_type`, `source_key`) NOT ENFORCED,
+  FOREIGN KEY (`board_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.dim_board` (`board_id`) NOT ENFORCED
+)
+CLUSTER BY board_id;
+
+CREATE TABLE IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}.meta_gold_rule_snapshot` (
+  `versao_regras` STRING NOT NULL,
+  `board_id` INT64 NOT NULL,
+  `conteudo` JSON NOT NULL,
+  `registrado_em` TIMESTAMP NOT NULL,
+  PRIMARY KEY (`versao_regras`) NOT ENFORCED,
+  FOREIGN KEY (`board_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.dim_board` (`board_id`) NOT ENFORCED
+)
+CLUSTER BY board_id;
+
 CREATE TABLE IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}.dim_item` (
   `item_id` INT64 NOT NULL,
   `board_id` INT64 NOT NULL,
@@ -290,4 +316,72 @@ CREATE TABLE IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}.silver_monday_status_eve
   FOREIGN KEY (`event_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.bronze_monday_activity_log_raw` (`event_id`) NOT ENFORCED
 )
 PARTITION BY DATE(event_at_utc)
+CLUSTER BY board_id, item_id, status_id;
+
+CREATE TABLE IF NOT EXISTS `${BQ_PROJECT}.${BQ_DATASET}.gold_projeto_status` (
+  `interval_id` STRING NOT NULL,
+  `board_id` INT64 NOT NULL,
+  `item_id` INT64 NOT NULL,
+  `status_id` STRING NOT NULL,
+  `projeto_nome` STRING NOT NULL,
+  `status_nome` STRING NOT NULL,
+  `ordem_status_quadro` INT64,
+  `status_final` BOOL NOT NULL,
+  `ordem_etapa` INT64 NOT NULL,
+  `passagem_numero_no_status` INT64 NOT NULL,
+  `eh_retorno` BOOL NOT NULL,
+  `eh_primeiro_registro` BOOL NOT NULL,
+  `eh_ultimo_registro` BOOL NOT NULL,
+  `entrada_status_utc` TIMESTAMP NOT NULL,
+  `saida_status_utc` TIMESTAMP,
+  `entrada_status_local` DATETIME NOT NULL,
+  `saida_status_local` DATETIME,
+  `corte_utc` TIMESTAMP NOT NULL,
+  `corte_local` DATETIME NOT NULL,
+  `duracao_minutos` FLOAT64 NOT NULL,
+  `duracao_horas` FLOAT64 NOT NULL,
+  `intervalo_aberto` BOOL NOT NULL,
+  `qualidade_historico` STRING NOT NULL,
+  `elegivel_comparacao` BOOL NOT NULL,
+  `horas_observadas_encerradas` FLOAT64,
+  `status_atual_id` STRING NOT NULL,
+  `status_atual_nome` STRING NOT NULL,
+  `projeto_ativo` BOOL NOT NULL,
+  `projeto_na_fila` BOOL NOT NULL,
+  `status_atual_divergente` BOOL NOT NULL,
+  `entrada_comprovada_utc` TIMESTAMP,
+  `finalizado_em_utc` TIMESTAMP,
+  `tempo_desde_entrada_horas` FLOAT64,
+  `tempo_status_atual_horas` FLOAT64,
+  `marca_chave` STRING,
+  `marca_nome` STRING,
+  `marca_situacao` STRING NOT NULL,
+  `talento_chave` STRING,
+  `talento_nome` STRING,
+  `talento_origem` STRING,
+  `talento_situacao` STRING NOT NULL,
+  `responsavel_orcamento` STRING,
+  `responsaveis_orcamento_json` JSON NOT NULL,
+  `quantidade_responsaveis_orcamento` INT64 NOT NULL,
+  `responsavel_situacao` STRING NOT NULL,
+  `talent_manager` STRING,
+  `gp` STRING,
+  `audiencia` STRING,
+  `conteudo` STRING,
+  `producao` STRING,
+  `pessoas_referencia_json` JSON NOT NULL,
+  `cadastro_referencia_utc` TIMESTAMP,
+  `versao_regras` STRING NOT NULL,
+  `board_sk` STRING NOT NULL,
+  `item_sk` STRING NOT NULL,
+  `status_sk` STRING NOT NULL,
+  PRIMARY KEY (`interval_id`) NOT ENFORCED,
+  FOREIGN KEY (`board_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.dim_board` (`board_id`) NOT ENFORCED,
+  FOREIGN KEY (`item_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.dim_item` (`item_id`) NOT ENFORCED,
+  FOREIGN KEY (`status_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.dim_status` (`status_id`) NOT ENFORCED,
+  FOREIGN KEY (`versao_regras`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.meta_gold_rule_snapshot` (`versao_regras`) NOT ENFORCED,
+  FOREIGN KEY (`interval_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.fct_item_status_interval` (`interval_id`) NOT ENFORCED,
+  FOREIGN KEY (`status_atual_id`) REFERENCES `${BQ_PROJECT}.${BQ_DATASET}.dim_status` (`status_id`) NOT ENFORCED
+)
+PARTITION BY DATE(entrada_status_utc)
 CLUSTER BY board_id, item_id, status_id;

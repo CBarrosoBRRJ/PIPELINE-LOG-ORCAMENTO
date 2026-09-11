@@ -7,6 +7,7 @@ Estamos finalizando um pipeline provisório Monday → PostgreSQL na Hostinger/E
 
 Repositório: https://github.com/CBarrosoBRRJ/PIPELINE-LOG-ORCAMENTO
 Branch: main. Leia PRD.md, docs/ACEITE_PROVISORIO.md e docs/POWER_BI_PRD.md.
+Atualização Gold 2.0: leia também docs/OURO_CONSUMO.md e docs/VALIDACAO_OURO.md. O código agora deve publicar orcamento.gold_projeto_status; as tabelas técnicas existentes permanecem. Não apagar schemas/tabelas, não executar backfill desnecessário e não modificar o catálogo de identidades sem revisão de negócio.
 Aplicação: identifique o serviço do pipeline existente no projeto banco_de_dados; não confunda com o serviço PostgreSQL postgres-pipeline. O nome exibido pode estar traduzido como oleoduto-orcamento.
 
 Faça, nesta ordem:
@@ -36,6 +37,7 @@ Preserve PG_USER, PG_PASSWORD, token Monday, MONDAY_BOARD_ID=18429499488 e MONDA
 sla-pipeline check-db
 sla-pipeline validate
 sla-pipeline quality-profile
+sla-pipeline validate-gold
 sla-pipeline health
 O banco deve ser dados_globo e o schema orcamento. Se a configuração de finais estava incorreta e a carga atualizada ainda não terminou, aguarde ou execute sla-pipeline replay depois que o executor liberar o lock, seguido das validações. Não executar um backfill extra sem necessidade. Não criar testes fictícios no banco.
 
@@ -43,6 +45,10 @@ O banco deve ser dados_globo e o schema orcamento. Se a configuração de finais
 SELECT status_label,is_terminal FROM orcamento.dim_status WHERE is_terminal;
 SELECT pipeline_name,last_run_utc,updated_at FROM orcamento.etl_watermark;
 SELECT mode,start_at,end_at,status FROM orcamento.etl_run ORDER BY start_at DESC LIMIT 3;
+SELECT count(*) AS passagens, count(DISTINCT item_sk) AS projetos, min(corte_utc), max(corte_utc) FROM orcamento.gold_projeto_status;
+SELECT start_at,status,metrics->>'gold_rules_version' AS versao_gold FROM orcamento.etl_run ORDER BY start_at DESC LIMIT 3;
+SELECT count(*)-count(DISTINCT interval_id) AS duplicadas FROM orcamento.gold_projeto_status;
+Não tratar somente a presença da Gold como prova de deploy: houve publicação manual inicial. Uma execução remota posterior deve registrar gold_rules_version nos logs e em etl_run.metrics. Caso o webhook não tenha aplicado a main atual, implantar a versão atual e observar uma carga concluída. Não iniciar outro agendador.
 SELECT code,COUNT(*) FROM orcamento.data_quality_issue GROUP BY code ORDER BY COUNT(*) DESC;
 SELECT schema_name FROM information_schema.schemata WHERE schema_name IN ('rede_globo','orcamentos','orcamento');
 O último resultado deve mostrar somente orcamento. Os três finais esperados são Encerrado, Declinado pelo Mercado e Declinado Internamente. Não limpar data_quality_issue nem preencher SLA desconhecido com zero. Os schemas antigos rede_globo e orcamentos já foram consolidados e retirados após backup com restauração testada. Não os recrie. Atualize consultas salvas e consumidores para orcamento.

@@ -26,12 +26,41 @@ TYPES = {
     "int": Integer,
     "bool": Boolean,
     "time": DateTime(timezone=True),
+    "localtime": DateTime(timezone=False),
     "date": Date,
     "num": Float,
     "json": JSON_TYPE,
 }
 
 DEFINITIONS = {
+    "meta_gold_rule_snapshot": (
+        "versao_regras",
+        "versao_regras:text board_id:id conteudo:json registrado_em:time",
+    ),
+    "meta_entity_mapping": (
+        "board_id,entity_type,source_key",
+        "board_id:id entity_type:text source_key:text source_text:text canonical_id:text "
+        "canonical_name:text entity_kind:text review_status:text reviewed_by:text updated_at:time",
+    ),
+    "gold_projeto_status": (
+        "interval_id",
+        "interval_id:text board_id:id item_id:id status_id:text projeto_nome:text "
+        "status_nome:text ordem_status_quadro:int status_final:bool ordem_etapa:int "
+        "passagem_numero_no_status:int eh_retorno:bool eh_primeiro_registro:bool eh_ultimo_registro:bool "
+        "entrada_status_utc:time saida_status_utc:time entrada_status_local:localtime "
+        "saida_status_local:localtime corte_utc:time corte_local:localtime "
+        "duracao_minutos:num duracao_horas:num intervalo_aberto:bool qualidade_historico:text "
+        "elegivel_comparacao:bool horas_observadas_encerradas:num "
+        "status_atual_id:text status_atual_nome:text projeto_ativo:bool projeto_na_fila:bool "
+        "status_atual_divergente:bool entrada_comprovada_utc:time finalizado_em_utc:time "
+        "tempo_desde_entrada_horas:num tempo_status_atual_horas:num "
+        "marca_chave:text marca_nome:text marca_situacao:text "
+        "talento_chave:text talento_nome:text talento_origem:text talento_situacao:text "
+        "responsavel_orcamento:text responsaveis_orcamento_json:json "
+        "quantidade_responsaveis_orcamento:int responsavel_situacao:text "
+        "talent_manager:text gp:text audiencia:text conteudo:text producao:text "
+        "pessoas_referencia_json:json cadastro_referencia_utc:time versao_regras:text",
+    ),
     "dim_board": ("board_id", "board_id:id board_name:text created_at:time updated_at:time"),
     "meta_column_mapping": (
         "board_id,column_id",
@@ -131,6 +160,9 @@ def foreign_keys():
             relationships.append((name, "current_status_id", "dim_status", "status_id"))
     relationships.extend(
         [
+            ("gold_projeto_status", "versao_regras", "meta_gold_rule_snapshot", "versao_regras"),
+            ("gold_projeto_status", "interval_id", "fct_item_status_interval", "interval_id"),
+            ("gold_projeto_status", "status_atual_id", "dim_status", "status_id"),
             ("bridge_item_person", "person_id", "dim_person", "person_id"),
             (
                 "silver_monday_status_event_stg",
@@ -168,6 +200,7 @@ def surrogate_foreign_keys():
 
 
 REPLACE_TABLES = {
+    "gold_projeto_status",
     "silver_monday_status_event_stg",
     "fct_item_status_interval",
     "fct_item_status_daily",
@@ -227,6 +260,7 @@ def define_tables(schema="sladb"):
             )
         )
     for name, columns in {
+        "gold_projeto_status": ["board_id", "item_id", "ordem_etapa"],
         "bronze_monday_activity_log_raw": ["board_id", "item_id", "event_at_utc"],
         "bronze_monday_item_snapshot_raw": ["board_id", "snapshot_at"],
         "fct_item_status_interval": ["board_id", "item_id", "status_start_utc"],

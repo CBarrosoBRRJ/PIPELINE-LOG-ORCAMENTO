@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from ..clients.monday_client import MondayClient, MondayError
 from ..db import get_store
 from ..services.extract import discover, extract_activities, snapshot
+from ..services.gold import build_gold
 from ..services.load import merge_rows
 from ..services.state import watermark, write_status
 from ..services.transform import transform
@@ -103,6 +104,18 @@ def run(settings, mode="daily", *, client=None, store=None, at=None):
             all_events = merge_rows(old_events, events, "bronze_monday_activity_log_raw")
             all_snapshots = merge_rows(old_snapshots, snapshots, "bronze_monday_item_snapshot_raw")
             payload = transform(all_events, all_snapshots, statuses, settings, started, active_ids)
+            report.update(
+                build_gold(
+                    payload,
+                    all_snapshots,
+                    board,
+                    mapping,
+                    store.read("meta_entity_mapping", settings.monday_board_id),
+                    list(known_people.values()),
+                    settings,
+                    started,
+                )
+            )
             previous_intervals = {
                 r["interval_id"]
                 for r in store.read("fct_item_status_interval", settings.monday_board_id)
@@ -271,5 +284,20 @@ def replay(settings):
             at,
             store.read("meta_column_mapping", settings.monday_board_id),
         )
+        gold_report = build_gold(
+            payload,
+            snapshots,
+            schema["raw_data"],
+            mapping,
+            store.read("meta_entity_mapping", settings.monday_board_id),
+            store.read("dim_person"),
+            settings,
+            at,
+        )
         store.commit(payload, settings.monday_board_id)
-    emit("replay_success", as_of=at, intervals=len(payload["fct_item_status_interval"]))
+    emit(
+        "replay_success",
+        as_of=at,
+        intervals=len(payload["fct_item_status_interval"]),
+        **gold_report,
+    )

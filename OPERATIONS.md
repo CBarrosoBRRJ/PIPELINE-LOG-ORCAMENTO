@@ -1,5 +1,13 @@
 # Operação e implantação na VPS
 
+## Atualização Gold 2.0
+
+`daily`, `backfill` e `replay` agora publicam também `gold_projeto_status`, com catálogo `meta_entity_mapping` e snapshots imutáveis `meta_gold_rule_snapshot`. A migração é aditiva; não remover as tabelas antigas nem resetar watermark. O Power BI novo importa uma tabela. Consulte [o contrato de consumo](docs/OURO_CONSUMO.md) e [a validação](docs/VALIDACAO_OURO.md).
+
+Após atualizar o código, executar `sla-pipeline replay` se for necessário publicar sem consultar a API/avançar corte; depois `sla-pipeline validate`, `sla-pipeline validate-gold` e `sla-pipeline quality-profile`. Com a carga diária atualizada, isso ocorre automaticamente. Não disputar execução com o loop; ele usa lock por quadro.
+
+O replay não comprova deploy do agendador. Conferir a versão no painel e os campos `gold_rules_version`, `gold_projects` e `gold_excluded_projects` nos logs/`etl_run.metrics` da execução remota. Um executor antigo não atualiza a Gold. Para corrigir identidades, editar o catálogo conforme o guia e reprocessar fora de uma carga em andamento; não editar linhas da Gold manualmente.
+
 ## PostgreSQL existente na VPS (configuração atual)
 
 Banco `dados_globo`, schema **`orcamento`**, PostgreSQL 17.11. Existe apenas uma área de dados deste pipeline. Os nomes anteriores foram consolidados com backup testado; não criar outro banco.

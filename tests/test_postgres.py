@@ -152,3 +152,56 @@ def test_dirty_legacy_data_blocks_required_field_migration(pg_settings, board):
     with pytest.raises(IntegrityError):
         store.initialize()
     assert store.read("dim_item")[0]["item_name"] is None
+
+
+def test_gold_exclusion_reinclusion_and_database_uniqueness(pg_settings, board):
+    class MutableMonday(FakeMonday):
+        talent = None
+
+        def item_pages(self):
+            self.pages_items += 1
+            item = raw_item()
+            item["column_values"].append({"id": "talent_x", "text": self.talent, "value": None})
+            yield [item]
+
+    store = PostgresStore(pg_settings)
+    client = MutableMonday(board)
+    run(pg_settings, client=client, store=store, at=at())
+    gold = store.read("gold_projeto_status")
+    assert len(gold) == 2
+    assert gold[0]["responsavel_orcamento"] == "Pessoa teste"
+    with pytest.raises(IntegrityError), store.engine.begin() as conn:
+        conn.execute(
+            text(
+                f"INSERT INTO {pg_settings.pg_schema}.gold_projeto_status SELECT * FROM {pg_settings.pg_schema}.gold_projeto_status"
+            )
+        )
+    client.talent = "Squad de Talentos"
+    run(pg_settings, client=client, store=store, at=at() + timedelta(hours=1))
+    assert store.read("gold_projeto_status") == []
+    assert len(store.read("fct_item_status_interval")) == 2
+    assert any(q["code"] == "gold_projeto_excluido" for q in store.read("data_quality_issue"))
+    client.talent = "Pessoa individual"
+    run(pg_settings, client=client, store=store, at=at() + timedelta(hours=2))
+    assert len(store.read("gold_projeto_status")) == 2
+    assert {r["interval_id"] for r in store.read("gold_projeto_status")} == {
+        r["interval_id"] for r in gold
+    }
+    assert not any(q["code"] == "gold_projeto_excluido" for q in store.read("data_quality_issue"))
+
+
+def test_catalog_manual_approval_not_overwritten(pg_settings, board):
+    store = PostgresStore(pg_settings)
+    run(pg_settings, client=FakeMonday(board), store=store, at=at())
+    pending = store.read("meta_entity_mapping")[0]
+    with store.engine.begin() as conn:
+        conn.execute(
+            text(
+                f"UPDATE {pg_settings.pg_schema}.meta_entity_mapping SET canonical_id='brand-test',canonical_name='Marca Revisada',entity_kind='organization',review_status='approved',reviewed_by='test'"
+            )
+        )
+    store.commit({"meta_entity_mapping": [pending]}, 42)
+    assert store.read("meta_entity_mapping")[0]["review_status"] == "approved"
+    run(pg_settings, client=FakeMonday(board), store=store, at=at())
+    assert store.read("gold_projeto_status")[0]["marca_nome"] == "Marca Revisada"
+    assert len(store.read("meta_gold_rule_snapshot")) == 2

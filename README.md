@@ -1,5 +1,7 @@
 # SLA de projetos — Monday → PostgreSQL → BI
 
+**Consumo versão 2:** importar apenas `orcamento.gold_projeto_status`. Python entrega uma linha por passagem com datas, duração, retorno, Marca, Talento e responsável de Orçamento. Guia: [OURO_CONSUMO.md](docs/OURO_CONSUMO.md). Validação/publicação: [VALIDACAO_OURO.md](docs/VALIDACAO_OURO.md). Histórico técnico preservado, exclusões auditáveis e catálogo de identidades revisável no banco.
+
 Pipeline `sls_orcamento_pdd`: snapshots de itens, eventos de status, intervalos de permanência e indicadores diários. Python 3.11+, PostgreSQL 16/17, execução headless. Namespace atual na VPS: `dados_globo.orcamento`; dataset futuro: `sla_orcamento_pdd`.
 
 ## Executar com o banco da VPS

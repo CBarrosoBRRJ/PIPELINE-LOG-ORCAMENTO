@@ -1,5 +1,7 @@
 # Como relacionar as tabelas e construir indicadores
 
+**Novo relatório, versão 2:** importar uma tabela e seguir [OURO_CONSUMO.md](OURO_CONSUMO.md). Os joins abaixo continuam úteis para auditoria técnica, mas não são necessários ao novo PBIX e não aplicam automaticamente as exclusões da Gold.
+
 Guia prático, 11/09/2026. Leia junto do [dicionário das 16 tabelas e quatro views](PRD_ANALITICO.md). O objetivo desta fase é conhecer os tempos reais e encontrar padrões, sem metas de prazo predefinidas.
 
 ## Por que existem camadas

@@ -249,6 +249,9 @@ class PostgresStore:
                     batch = rows[offset : offset + 500]
                     statement = insert(table).values(batch)
                     keys = [c.name for c in table.primary_key]
+                    if name in {"meta_entity_mapping", "meta_gold_rule_snapshot"}:
+                        conn.execute(statement.on_conflict_do_nothing(index_elements=keys))
+                        continue
                     updates = {
                         c.name: statement.excluded[c.name] for c in table.c if c.name not in keys
                     }

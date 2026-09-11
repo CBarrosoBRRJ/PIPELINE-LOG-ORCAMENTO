@@ -19,6 +19,7 @@ def main():
         "",
         "`id`: inteiro positivo de 64 bits; `text`: texto; `time`: timestamp com fuso;",
         "`date`: data; `num`: número finito não negativo; `bool`: booleano; `json`: objeto/lista.",
+        "`localtime`: data/hora local sem fuso, para apresentação; referência temporal continua em UTC.",
         "Campos opcionais aceitam NULL. Campos obrigatórios não aceitam NULL e textos obrigatórios não aceitam vazio.",
         "SKs são calculadas antes da gravação; devem corresponder ao ID original. A obrigatoriedade de SK dimensional é imposta pelo banco.",
     ]

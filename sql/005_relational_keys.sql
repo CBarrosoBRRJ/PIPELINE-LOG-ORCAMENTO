@@ -59,6 +59,83 @@ DO $$ BEGIN
 END $$;
 
 DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_meta_gold_rule_snapsho_54d2df14'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.meta_gold_rule_snapshot ADD CONSTRAINT fk_meta_gold_rule_snapsho_54d2df14 FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_meta_entity_mapping_c3348c56'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.meta_entity_mapping ADD CONSTRAINT fk_meta_entity_mapping_c3348c56 FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_gold_projeto_status_15cb5839'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.gold_projeto_status ADD CONSTRAINT fk_gold_projeto_status_15cb5839 FOREIGN KEY(status_atual_id) REFERENCES sladb.dim_status (status_id) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_gold_projeto_status_3e6fde19'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.gold_projeto_status ADD CONSTRAINT fk_gold_projeto_status_3e6fde19 FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_gold_projeto_status_a35625af'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.gold_projeto_status ADD CONSTRAINT fk_gold_projeto_status_a35625af FOREIGN KEY(status_id) REFERENCES sladb.dim_status (status_id) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_gold_projeto_status_d612ad30'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.gold_projeto_status ADD CONSTRAINT fk_gold_projeto_status_d612ad30 FOREIGN KEY(item_id) REFERENCES sladb.dim_item (item_id) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_gold_projeto_status_f2b260a7'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.gold_projeto_status ADD CONSTRAINT fk_gold_projeto_status_f2b260a7 FOREIGN KEY(interval_id) REFERENCES sladb.fct_item_status_interval (interval_id) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_gold_projeto_status_fec14abf'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.gold_projeto_status ADD CONSTRAINT fk_gold_projeto_status_fec14abf FOREIGN KEY(versao_regras) REFERENCES sladb.meta_gold_rule_snapshot (versao_regras) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_sk_gold_projeto_status_2e6468b2'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.gold_projeto_status ADD CONSTRAINT fk_sk_gold_projeto_status_2e6468b2 FOREIGN KEY(item_id, item_sk) REFERENCES sladb.dim_item (item_id, item_sk) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_sk_gold_projeto_status_60f72d33'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.gold_projeto_status ADD CONSTRAINT fk_sk_gold_projeto_status_60f72d33 FOREIGN KEY(status_id, status_sk) REFERENCES sladb.dim_status (status_id, status_sk) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_sk_gold_projeto_status_6758164f'
+                AND connamespace='sladb'::regnamespace) THEN
+    ALTER TABLE sladb.gold_projeto_status ADD CONSTRAINT fk_sk_gold_projeto_status_6758164f FOREIGN KEY(board_id, board_sk) REFERENCES sladb.dim_board (board_id, board_sk) DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+DO $$ BEGIN
   IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='fk_meta_column_mapping_0a689ea5'
                 AND connamespace='sladb'::regnamespace) THEN
     ALTER TABLE sladb.meta_column_mapping ADD CONSTRAINT fk_meta_column_mapping_0a689ea5 FOREIGN KEY(board_id) REFERENCES sladb.dim_board (board_id) DEFERRABLE INITIALLY DEFERRED;

@@ -19,6 +19,7 @@ def main():
             "loop",
             "replay",
             "validate",
+            "validate-gold",
             "health",
             "export-bq",
             "check-db",
@@ -88,6 +89,17 @@ def main():
             from .pipelines.runner import replay
 
             replay(settings)
+        elif args.command == "validate-gold":
+            from .db import get_store
+            from .services.gold import validate_gold
+
+            store = get_store(settings)
+            names = ["gold_projeto_status", "fct_item_status_interval", "data_quality_issue"]
+            payload = {n: store.read(n, settings.monday_board_id) for n in names}
+            if not payload["fct_item_status_interval"]:
+                raise ValueError("Banco sem intervalos para reconciliar")
+            validate_gold(payload)
+            emit("gold_validation_success", rows=len(payload["gold_projeto_status"]))
         elif args.command == "validate":
             from .db import get_store
             from .services.transform import validate

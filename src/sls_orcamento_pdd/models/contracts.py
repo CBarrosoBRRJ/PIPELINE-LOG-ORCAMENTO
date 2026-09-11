@@ -6,8 +6,11 @@ from datetime import date, datetime
 from .keys import SURROGATE_COLUMNS, with_surrogates
 from .schemas import DEFINITIONS
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "2.0.0"
 REQUIRED = {
+    "meta_gold_rule_snapshot": "board_id conteudo registrado_em",
+    "meta_entity_mapping": "source_text entity_kind review_status updated_at",
+    "gold_projeto_status": "board_id item_id status_id projeto_nome status_nome status_final ordem_etapa passagem_numero_no_status eh_retorno eh_primeiro_registro eh_ultimo_registro entrada_status_utc entrada_status_local corte_utc corte_local duracao_minutos duracao_horas intervalo_aberto qualidade_historico elegivel_comparacao status_atual_id status_atual_nome projeto_ativo projeto_na_fila status_atual_divergente marca_situacao talento_situacao responsaveis_orcamento_json quantidade_responsaveis_orcamento responsavel_situacao pessoas_referencia_json versao_regras board_sk item_sk status_sk",
     "dim_board": "board_name updated_at",
     "dim_item": "board_id item_name current_status_id is_active",
     "dim_status": "board_id status_label status_label_norm status_column_id is_terminal",
@@ -26,6 +29,10 @@ REQUIRED = {
     "data_quality_issue": "board_id item_id code detail detected_at",
 }
 DOMAINS = {
+    "qualidade_historico": {"observed", "initial_inferred", "no_history_inferred"},
+    "entity_type": {"marca", "talento"},
+    "entity_kind": {"person", "organization", "collective", "unknown"},
+    "review_status": {"pending", "approved"},
     "history_quality": {"observed", "initial_inferred", "no_history_inferred"},
     "attribute_source": {"as_of_start", "earliest_available", "unavailable"},
     "sla_start_quality": {"observed_event", "unavailable"},
@@ -43,6 +50,8 @@ def valid_type(kind, value):
         return type(value) is bool
     if kind == "time":
         return isinstance(value, datetime) and value.utcoffset() is not None
+    if kind == "localtime":
+        return isinstance(value, datetime) and value.tzinfo is None
     if kind == "date":
         return type(value) is date
     if kind == "num":
@@ -92,6 +101,45 @@ def validate_table(name, rows, board_id=None, *, unique=True):
         for sk in SURROGATE_COLUMNS.get(name, {}):
             if sk in row and row[sk] != expected[sk]:
                 fail(sk, "inconsistente com ID de origem")
+        if name == "gold_projeto_status":
+            end = row["saida_status_utc"]
+            if row["intervalo_aberto"] != (end is None):
+                fail("saida_status_utc", "inconsistente com intervalo aberto")
+            minutes = ((end or row["corte_utc"]) - row["entrada_status_utc"]).total_seconds() / 60
+            if (
+                minutes < 0
+                or abs(minutes - row["duracao_minutos"]) > 1e-5
+                or abs(minutes / 60 - row["duracao_horas"]) > 1e-5
+            ):
+                fail("duracao_horas", "não reconciliada com datas")
+            if end is not None and end > row["corte_utc"]:
+                fail("saida_status_utc", "posterior ao corte")
+            if row["elegivel_comparacao"] and (
+                row["qualidade_historico"] != "observed"
+                or row["intervalo_aberto"]
+                or row["status_atual_divergente"]
+            ):
+                fail("elegivel_comparacao", "histórico incompatível")
+            if row["horas_observadas_encerradas"] != (
+                row["duracao_horas"] if row["elegivel_comparacao"] else None
+            ):
+                fail("horas_observadas_encerradas", "valor incompatível com elegibilidade")
+            if (
+                row["entrada_comprovada_utc"] is None
+                and row["tempo_desde_entrada_horas"] is not None
+            ):
+                fail("tempo_desde_entrada_horas", "total sem Entrada comprovada")
+            if min(row["ordem_etapa"], row["passagem_numero_no_status"]) < 1:
+                fail("ordem_etapa", "ordem inválida")
+        if name == "meta_entity_mapping" and row["review_status"] == "approved":
+            if (
+                not all(
+                    isinstance(row.get(k), str) and row[k].strip()
+                    for k in ("canonical_id", "canonical_name", "reviewed_by")
+                )
+                or row["entity_kind"] == "unknown"
+            ):
+                fail("review_status", "aprovação incompleta")
         if name == "fct_item_status_interval":
             minutes = (row["status_end_utc"] - row["status_start_utc"]).total_seconds() / 60
             if minutes < 0 or abs(minutes - row["duration_minutes"]) > 1e-5:
