@@ -16,7 +16,6 @@ def main():
             "init-db",
             "backfill",
             "daily",
-            "loop",
             "replay",
             "preview-gold",
             "validate",
@@ -25,46 +24,79 @@ def main():
             "export-bq",
             "check-db",
             "quality-profile",
-            "migrate-single-table",
-            "migrate-consumption",
             "export-review",
             "import-review",
             "backup-state",
+            "import-state",
+            "recover",
+            "inspect-lock",
+            "unlock",
+            "calendar",
         ],
     )
     parser.add_argument("--review-file")
+    parser.add_argument("--checkpoint-file")
+    parser.add_argument("--generation")
+    parser.add_argument("--lock-generation", type=int)
+    parser.add_argument("--execution-stopped", action="store_true")
+    parser.add_argument("--year", type=int)
     args = parser.parse_args()
     try:
         settings = load_settings(args.env_file)
-        if args.command in {
+        if args.command == "calendar":
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            from .rules.business_time import BusinessCalendar
+
+            year = args.year or datetime.now().year
+            zone = ZoneInfo(settings.preferred_timezone)
+            calendar = BusinessCalendar(settings.preferred_timezone, settings.business_holidays)
+            calendar.hours(
+                datetime(year, 1, 1, tzinfo=zone), datetime(year, 12, 31, 23, tzinfo=zone)
+            )
+            print(json.dumps(calendar.snapshot(), ensure_ascii=False, indent=2))
+        elif args.command in {"import-state", "recover", "inspect-lock", "unlock"}:
+            from pathlib import Path
+
+            from .db.bq import BigQueryStore
+            from .migration.readers import load_checkpoint
+
+            store = BigQueryStore(settings)
+            if args.command == "inspect-lock":
+                emit("gcs_lock", **store.objects.inspect_lock())
+            elif args.command == "unlock":
+                if not args.execution_stopped or not args.lock_generation:
+                    raise ValueError(
+                        "Pare a execução e informe --execution-stopped e --lock-generation"
+                    )
+                store.objects.unlock(args.lock_generation)
+                emit("gcs_lock_removed", generation=args.lock_generation)
+            elif args.command == "recover":
+                store.initialize()
+                emit("gcp_recovered", **store.check_connection())
+            else:
+                if not args.checkpoint_file or not args.generation:
+                    raise ValueError(
+                        "Informe --checkpoint-file e --generation do recibo PostgreSQL"
+                    )
+                data = load_checkpoint(Path(args.checkpoint_file), args.generation)
+                emit("gcp_migration_verified", **store.import_state(data))
+        elif args.command in {
             "migrate-single-table",
             "migrate-consumption",
             "export-review",
             "import-review",
             "backup-state",
         }:
-            from .db.consumer import ConsumerStore
+            from .db import get_store
             from .services.review import export_review, import_review
 
-            if settings.target_db != "postgres":
-                raise ValueError("Comando disponível para o executor PostgreSQL")
-            store = ConsumerStore(settings)
-            if args.command in {"migrate-single-table", "migrate-consumption"}:
-                emit("consumption_migration", **store.migrate())
-            elif args.command == "export-review":
+            store = get_store(settings)
+            if args.command == "export-review":
                 emit("review_exported", **export_review(store, settings))
             elif args.command == "backup-state":
-                from .utils.time import utcnow
-
-                with store.lock():
-                    store.read("etl_watermark")
-                    destination = (
-                        settings.runtime_dir
-                        / "backups"
-                        / ("state_" + utcnow().strftime("%Y%m%dT%H%M%SZ") + ".sqlite3")
-                    )
-                    store.checkpoint.backup(destination)
-                emit("state_backup", path=str(destination))
+                emit("state_backup", uri=store.backup())
             else:
                 if not args.review_file:
                     raise ValueError("Informe --review-file com o catálogo revisado")
@@ -92,25 +124,20 @@ def main():
             from .db import get_store
             from .services.quality import quality_profile
 
-            report = quality_profile(get_store(settings), settings.monday_board_id)
-            settings.runtime_dir.mkdir(parents=True, exist_ok=True)
-            path = settings.runtime_dir / f"quality_{settings.monday_board_id}.json"
-            path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            store = get_store(settings)
+            report = quality_profile(store, settings.monday_board_id)
+            emit("quality_report", uri=store.write_artifact("quality", report))
             emit(
                 "quality_profile",
                 tables=len(report["tables"]),
                 critical_failures=report["critical_failures"],
             )
             if report["critical_failures"]:
-                raise ValueError(
-                    "Contrato inválido em uma ou mais tabelas; confira o relatório de qualidade em runtime"
-                )
+                raise ValueError("Contrato inválido; confira o relatório de qualidade")
         elif args.command == "check-db":
-            from .db.postgres import PostgresStore
+            from .db import get_store
 
-            print(
-                json.dumps(PostgresStore(settings).check_connection(), ensure_ascii=False, indent=2)
-            )
+            print(json.dumps(get_store(settings).check_connection(), ensure_ascii=False, indent=2))
         elif args.command == "init-db":
             from .db import get_store
 
@@ -121,11 +148,6 @@ def main():
             from .utils.time import utcnow
 
             run(settings, args.command, scheduled_for=utcnow() if args.command == "daily" else None)
-        elif args.command == "loop":
-            from .pipelines.runner import run
-            from .services.scheduler import run_loop
-
-            run_loop(settings, run, emit)
         elif args.command in ("replay", "preview-gold"):
             from .pipelines.runner import replay
 
@@ -144,11 +166,7 @@ def main():
                 "data_quality_issue",
                 "etl_watermark",
             ]
-            payload = (
-                store.read_many(names, settings.monday_board_id)
-                if hasattr(store, "read_many")
-                else {n: store.read(n, settings.monday_board_id) for n in names}
-            )
+            payload = store.read_many(names, settings.monday_board_id)
             if not payload["fct_item_status_interval"]:
                 raise ValueError("Banco sem intervalos para reconciliar")
             previous = watermark(payload["etl_watermark"], settings.pipeline_name)
@@ -165,30 +183,16 @@ def main():
 
             store = get_store(settings)
             names = ["dim_item", "fct_item_status_interval", "fct_item_status_daily"]
-            payload = (
-                store.read_many(names, settings.monday_board_id)
-                if hasattr(store, "read_many")
-                else {n: store.read(n, settings.monday_board_id) for n in names}
-            )
+            payload = store.read_many(names, settings.monday_board_id)
             if not payload["dim_item"]:
                 raise ValueError("Banco ainda sem itens")
             validate(payload, sum(i["is_active"] for i in payload["dim_item"]))
             emit("validation_success", items=len(payload["dim_item"]))
         elif args.command == "health":
-            if settings.target_db == "postgres":
-                from .db import get_store
-                from .services.health import check_health
+            from .db import get_store
+            from .services.health import check_health
 
-                emit("health_ok", **check_health(get_store(settings), settings))
-                return 0
-            from .utils.time import parse_timestamp, utcnow
-
-            path = settings.runtime_dir / f"status_{settings.monday_board_id}.json"
-            status = json.loads(path.read_text(encoding="utf-8"))
-            age = (utcnow() - parse_timestamp(status["end_at"])).total_seconds() / 3600
-            if status["status"] != "success" or age > settings.run_window_hours + 2:
-                raise ValueError("Última execução falhou ou está atrasada")
-            emit("health_ok", age_hours=round(age, 2))
+            emit("health_ok", **check_health(get_store(settings), settings))
         else:
             from .db.bq import export_postgres
 

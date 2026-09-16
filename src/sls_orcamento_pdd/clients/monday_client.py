@@ -22,10 +22,6 @@ class MondayError(RuntimeError):
 class MondayClient:
     def __init__(self, settings, session=None, sleep=time.sleep):
         self.settings = settings
-        if session is None and settings.monday_http_transport == "curl":
-            from .curl_session import CurlSession
-
-            session = CurlSession()
         self.session = session or requests.Session()
         self.sleep = sleep
         self.calls = 0
@@ -41,7 +37,7 @@ class MondayClient:
 
     def query(self, query, variables=None):
         if not self.settings.monday_api_token.get_secret_value():
-            raise MondayError("Defina MONDAY_API_TOKEN (ou TOKEN_MONDAY) no .env")
+            raise MondayError("Configure MONDAY_API_TOKEN via Secret Manager/ambiente")
         for attempt in range(self.settings.monday_max_retries + 1):
             delay = min(2**attempt, 60) + random.random()
             try:

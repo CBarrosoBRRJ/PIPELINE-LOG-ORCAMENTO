@@ -1,14 +1,18 @@
-# Pipeline de histórico por status — 3.1.0
+# Pipeline de permanência por status — 4.0.0
 
-Monday → tratamento Python → PostgreSQL para Power BI.
+Monday → joins, regras e horas úteis em Python → **BigQuery `viu_agenciamento.sla_orcamento`**.
 
-- `orcamento.gold_projeto_status`: passagens em ordem temporal, tempos comprovados, Marca, Talento, responsável, retorno e IDs.
-- `orcamento.pendencias_projeto`: projeto/ID, valores originais, motivos, orientação de correção e se foi excluído da análise.
-- Uma tentativa diária às 06h São Paulo, corte D+1 à meia-noite. Deploy não inicia coleta.
-- Estado técnico privado no volume runtime; publicação atômica, sem tabelas auxiliares PostgreSQL.
+- Uma única tabela BigQuery, reutilizada em todas as cargas; uma linha por passagem do projeto em um status.
+- `duracao_horas_uteis`: segunda a sexta, 10h–13h e 14h–19h, fuso São Paulo, feriados nacionais automáticos.
+- Horas corridas preservadas em `duracao_horas`; histórico desconhecido continua NULL.
+- Cloud Run Job executa `daily`, Cloud Scheduler dispara 06h São Paulo; fechamento D+1.
+- Evidências, checkpoint, pendências, calendário e controle ficam privados no Cloud Storage.
+- Carga atômica, exclusão/reinclusão, reserva diária, trava distribuída e recuperação por job ID.
 
-Comece pelo [guia direto](docs/CONSUMO_DIRETO.md), [PRD](PRD.md), [Power BI](docs/POWER_BI_PRD.md) e [operação](OPERATIONS.md).
+Comece pelo [roteiro para iniciantes](docs/APRENDER_GCP.md) e pelos [prompts por etapa para o GPT Web](docs/PROMPTS_GPT_WEB.md). Referência técnica: [deploy GCP/GitHub](docs/DEPLOY_GCP.md), [PRD](PRD.md), [dicionário](docs/OURO_CONSUMO.md), [contrato](docs/CONTRATO_SLA_ORCAMENTO.md) e [operação](OPERATIONS.md).
 
-Instalação nova: `sla-pipeline init-db` e carga inicial manual `sla-pipeline backfill`. Atualização de instalação anterior: backup PostgreSQL+runtime, restore verificado, `sla-pipeline migrate-consumption`, `replay`, `validate-gold`, `health`. Não apagar o checkpoint. O serviço usa `sla-pipeline loop`.
+Instalação local: `python -m pip install -e '.[dev]'`. Copie `.env.example` e use ADC. Testes: `python -m pytest -q`. Calendário: `sla-pipeline calendar --year 2026`.
 
-Testes usam somente PostgreSQL local; segredos e dados operacionais ficam fora do Git. BigQuery corporativo permanece evolução futura.
+Migração: instale o extra `.[migration]` somente na máquina que lerá PostgreSQL. `export-bq` lê origem + checkpoint sob lock e importa tudo no GCS, publicando somente a projeção Gold. Alternativa offline: `import-state --checkpoint-file CAMINHO --generation GERACAO_DO_RECIBO`. Veja [migração do histórico](docs/MIGRACAO_HISTORICO.md). Não apagar origem/backup antes da reconciliação.
+
+Implementação e testes locais não equivalem a implantação: GCP real depende de provisionar bucket/IAM/segredo e validar o primeiro job. Não há escritor PostgreSQL, cron interno, Compose ou Databricks. O importador de origem é somente leitura, isolado em migration/. Veja [limpeza e evidências](docs/VALIDACAO_GCP.md).

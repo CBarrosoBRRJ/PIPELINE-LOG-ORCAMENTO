@@ -1,24 +1,17 @@
-from sls_orcamento_pdd.db.bq import integrity_assertions, table_ddl
-from sls_orcamento_pdd.models.schemas import DEFINITIONS, define_tables, foreign_keys
+from sls_orcamento_pdd.db.bq import public_schema, table_ddl
+from sls_orcamento_pdd.models.bq_consumption import FIELDS
 
 
-def test_bq_schema_preserves_keys_partitioning_and_relationships():
-    sql = table_ddl("project.dataset", "fct_item_status_interval")
-    assert "`item_id` INT64" in sql
-    assert "PARTITION BY DATE(status_start_utc)" in sql
-    assert "REFERENCES `project.dataset.dim_item` (`item_id`) NOT ENFORCED" in sql
+def test_only_public_gold_ddl_with_nullable_unknown_times():
+    sql = table_ddl("project.dataset")
+    assert sql.count("CREATE TABLE") == 1
+    assert "project.dataset.sla_orcamento" in sql
     assert "CLUSTER BY board_id, item_id, status_id" in sql
-
-
-def test_bq_checks_integrity_before_publication():
-    statements = integrity_assertions("project.dataset", DEFINITIONS)
-    assert len(statements) >= len(DEFINITIONS) + len(foreign_keys())
-    assert all(s.startswith("ASSERT") for s in statements)
-    assert any("Invalid primary key: bronze_monday_item_snapshot_raw" in s for s in statements)
-    assert any("Invalid foreign key: bridge_item_person.person_id" in s for s in statements)
-
-
-def test_metadata_creation_order_has_parents_before_children():
-    metadata, _ = define_tables()
-    order = {table.name: i for i, table in enumerate(metadata.sorted_tables)}
-    assert all(order[parent] < order[child] for child, _, parent, _ in foreign_keys())
+    assert "REFERENCES" not in sql
+    assert "entrada_status_utc` TIMESTAMP," in sql
+    assert "duracao_horas_uteis` FLOAT64," in sql
+    schema = {f.name: f for f in public_schema()}
+    assert set(schema) == {f.split(":")[0] for f in FIELDS.split()}
+    assert schema["interval_id"].mode == "REQUIRED"
+    assert schema["entrada_status_utc"].mode == "NULLABLE"
+    assert schema["versao_calendario"].mode == "REQUIRED"

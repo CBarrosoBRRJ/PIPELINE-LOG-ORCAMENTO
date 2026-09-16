@@ -1,10 +1,10 @@
+from datetime import date
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import URL
 
 
 class Settings(BaseSettings):
@@ -15,7 +15,6 @@ class Settings(BaseSettings):
     )
     monday_api_url: str = "https://api.monday.com/v2"
     monday_api_version: str = "2026-04"
-    monday_http_transport: Literal["requests", "curl"] = "requests"
     monday_board_id: int = Field(
         default=18429499488, validation_alias=AliasChoices("MONDAY_BOARD_ID", "BOARDS")
     )
@@ -37,23 +36,27 @@ class Settings(BaseSettings):
     monday_log_page_size: int = Field(default=100, ge=1, le=1000)
     monday_timeout_seconds: int = Field(default=60, ge=1)
     monday_max_retries: int = Field(default=6, ge=0, le=15)
-    target_db: Literal["postgres", "bigquery"] = "postgres"
+    target_db: Literal["bigquery"] = "bigquery"
     pg_dsn: SecretStr = SecretStr("")
     pg_host: str = "127.0.0.1"
     pg_port: int = 55432
     pg_db: str = "sla_workflow"
     pg_user: str = "sla_pipeline"
     pg_password: SecretStr = SecretStr("")
-    pg_schema: str = "sladb"
+    pg_schema: str = "orcamento"
     pg_sslmode: Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"] = (
         "prefer"
     )
     bq_project: str = ""
-    bq_dataset: str = "sla_orcamento_pdd"
+    bq_dataset: str = "viu_agenciamento"
+    bq_table: str = "sla_orcamento"
     bq_location: str = "US"
     bq_keyfile: str = ""
+    gcs_bucket: str = ""
+    gcs_prefix: str = "sla_orcamento"
+    bq_job_timeout_seconds: int = Field(default=1200, ge=1)
+    business_holidays: list[date] = Field(default_factory=list)
     runtime_dir: Path = Path("runtime")
-    cron_schedule: str = "0 6 * * *"
 
     @field_validator("final_status_labels")
     @classmethod
@@ -69,13 +72,22 @@ class Settings(BaseSettings):
             value = value.strip().strip("[]").strip().strip("'\"")
         return value
 
-    @field_validator("pg_schema", "bq_dataset")
+    @field_validator("pg_schema", "bq_dataset", "bq_table")
     @classmethod
     def identifier(cls, value):
         import re
 
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
             raise ValueError("Identificador de schema/dataset inválido")
+        return value
+
+    @field_validator("gcs_prefix")
+    @classmethod
+    def storage_prefix(cls, value):
+        import re
+
+        if not re.fullmatch(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*", value):
+            raise ValueError("Prefixo Cloud Storage inválido")
         return value
 
     @field_validator("pg_schema")
@@ -90,22 +102,6 @@ class Settings(BaseSettings):
     def timezone(cls, value):
         ZoneInfo(value)
         return value
-
-    @property
-    def database_url(self):
-        dsn = self.pg_dsn.get_secret_value()
-        if dsn:
-            return dsn.replace("postgresql://", "postgresql+psycopg://", 1).replace(
-                "postgres://", "postgresql+psycopg://", 1
-            )
-        return URL.create(
-            "postgresql+psycopg",
-            username=self.pg_user,
-            password=self.pg_password.get_secret_value(),
-            host=self.pg_host,
-            port=self.pg_port,
-            database=self.pg_db,
-        )
 
     @property
     def pipeline_name(self):

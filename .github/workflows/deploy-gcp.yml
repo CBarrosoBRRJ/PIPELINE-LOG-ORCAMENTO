@@ -1,0 +1,36 @@
+name: Deploy Cloud Run Job
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: deploy-sla-orcamento
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      IMAGE: us-central1-docker.pkg.dev/gglobo-viu-dados-hdg-prd/viu-pipelines/pipeline-orcamento:${{ github.sha }}
+      GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+      SECRET_VERSION: ${{ vars.MONDAY_SECRET_VERSION || '1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q
+      - run: python -m ruff check src tests scripts/generate_ddl.py scripts/generate_contract_docs.py
+      - run: docker build --tag "$IMAGE" .
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: gglobo-viu-dados-hdg-prd
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+      - run: docker push "$IMAGE"
+      - run: bash deploy/deploy.sh

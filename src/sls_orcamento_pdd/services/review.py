@@ -1,6 +1,5 @@
-"""Private review artifacts, outside the PostgreSQL consumption database."""
+"""Private GCS review artifacts and explicitly approved catalog imports."""
 
-import csv
 import json
 from datetime import datetime
 from pathlib import Path
@@ -8,30 +7,24 @@ from pathlib import Path
 
 def export_review(store, settings):
     data = store.read_many(["quarentena_projeto", "meta_entity_mapping"], settings.monday_board_id)
-    folder = settings.runtime_dir / "review"
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "catalogo_identidades.json").write_text(
-        json.dumps(data["meta_entity_mapping"], ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    rows = data["quarentena_projeto"]
-    from ..models.schemas import DEFINITIONS
-
-    fields = [f.split(":")[0] for f in DEFINITIONS["quarentena_projeto"][1].split()]
-    with (folder / "projetos_quarentena.csv").open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({**row, "motivos": json.dumps(row["motivos"], ensure_ascii=False)})
+    data["pendencias_projeto"] = store.read("pendencias_projeto", settings.monday_board_id)
     return {
-        "quarantined_projects": len(rows),
+        "quarantined_projects": len(data["quarentena_projeto"]),
         "catalog_entries": len(data["meta_entity_mapping"]),
-        "directory": str(folder),
+        "uri": store.write_artifact("review", data),
     }
 
 
 def import_review(store, settings, path):
-    rows = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    if str(path).startswith("gs://"):
+        from google.cloud import storage
+
+        blob = storage.Blob.from_string(
+            str(path), client=storage.Client(project=settings.bq_project)
+        )
+        rows = json.loads(blob.download_as_bytes())
+    else:
+        rows = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     if not isinstance(rows, list) or not rows:
         raise ValueError("Revisão requer lista JSON não vazia")
     for row in rows:

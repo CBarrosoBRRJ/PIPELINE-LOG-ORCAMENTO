@@ -1,26 +1,28 @@
-"""BigQuery adapter and PostgreSQL migration, sharing the pure model.
+"""One public BigQuery table, immutable GCS state, recoverable atomic load jobs.
 
-All destination DML, including watermark, commits in one BQ transaction.
-Load jobs target expiring staging tables only. Run a single scheduler per board;
-local process locking complements the transaction, it is not a distributed lease.
+GCS control.json is a write-ahead journal. Pending jobs must settle before any
+subsequent write. A deterministic load job ID bridges BQ and GCS crash recovery.
 """
 
+import copy
+import hashlib
 import json
 import uuid
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta
 
-from ..models.contracts import prepare_payload, required_columns
-from ..models.keys import DIMENSION_IDENTITIES
-from ..models.schemas import (
-    DEFINITIONS,
-    REPLACE_TABLES,
-    define_tables,
-    foreign_keys,
-    surrogate_foreign_keys,
-)
+from google.api_core.exceptions import Conflict, NotFound
+from google.cloud import bigquery
+
+from ..models.bq_consumption import FIELDS, REQUIRED, digest, project
+from ..models.consumption import GOLD, PENDING, publication
+from ..models.schemas import DEFINITIONS
+from ..rules.cutoff import closed_day_cut
+from ..services.gold import validate_gold
+from ..services.state import watermark
 from ..utils.logging import emit
-from ..utils.time import utcnow
+from .checkpoint import canonical_json, decode, encode, fingerprint
+from .gcs import ObjectStore
+from .state_payload import merge_state, validate_state
 
 BQ_TYPES = {
     "text": "STRING",
@@ -33,281 +35,338 @@ BQ_TYPES = {
     "num": "FLOAT64",
     "json": "JSON",
 }
-PARTITIONS = {
-    "gold_projeto_status": "DATE(entrada_status_utc)",
-    "bronze_monday_activity_log_raw": "DATE(event_at_utc)",
-    "bronze_monday_item_snapshot_raw": "snapshot_date",
-    "bronze_monday_board_schema_raw": "snapshot_date",
-    "silver_monday_status_event_stg": "DATE(event_at_utc)",
-    "fct_item_status_interval": "DATE(status_start_utc)",
-    "fct_item_status_daily": "dt",
-    "etl_run": "DATE(start_at)",
-}
 
 
-def table_ddl(prefix, name):
-    fields = [
-        f"`{f.split(':')[0]}` {BQ_TYPES[f.split(':')[1]]}"
-        + (" NOT NULL" if f.split(":")[0] in required_columns(name) else "")
-        for f in DEFINITIONS[name][1].split()
-    ]
-    keys = DEFINITIONS[name][0].split(",")
-    fields.append("PRIMARY KEY (" + ", ".join(f"`{k}`" for k in keys) + ") NOT ENFORCED")
-    # BQ constraints document/optimize relationships; they do not enforce integrity.
-    for child, column, parent, target in foreign_keys():
-        if child == name:
-            fields.append(
-                f"FOREIGN KEY (`{column}`) REFERENCES `{prefix}.{parent}` (`{target}`) NOT ENFORCED"
-            )
-    sql = f"CREATE TABLE IF NOT EXISTS `{prefix}.{name}` (\n  " + ",\n  ".join(fields) + "\n)"
-    if name in PARTITIONS:
-        sql += "\nPARTITION BY " + PARTITIONS[name]
-    available = {f.split(":")[0] for f in DEFINITIONS[name][1].split()}
-    clusters = [k for k in ("board_id", "item_id", "status_id") if k in available]
-    if clusters:
-        sql += "\nCLUSTER BY " + ", ".join(clusters)
-    return sql
-
-
-def integrity_assertions(prefix, names):
-    statements = []
-    for name in names:
-        keys = DEFINITIONS[name][0].split(",")
-        scope = " WHERE T.board_id=@board" if "board_id:id" in DEFINITIONS[name][1] else ""
-        key_struct = ",".join(f"T.`{key}` AS `{key}`" for key in keys)
-        null_keys = " OR ".join(f"T.`{key}` IS NULL" for key in keys)
-        statements.append(
-            f"ASSERT (SELECT COUNT(*)=COUNT(DISTINCT TO_JSON_STRING(STRUCT({key_struct}))) "
-            f"AND COUNTIF({null_keys})=0 FROM `{prefix}.{name}` T{scope}) "
-            f"AS 'Invalid primary key: {name}';"
+def public_schema():
+    return [
+        bigquery.SchemaField(
+            column, BQ_TYPES[kind], mode="REQUIRED" if column in REQUIRED else "NULLABLE"
         )
-        if name in DIMENSION_IDENTITIES:
-            surrogate = DIMENSION_IDENTITIES[name][1]
-            statements.append(
-                f"ASSERT (SELECT COUNT(*)=COUNT(DISTINCT T.{surrogate}) "
-                f"FROM `{prefix}.{name}` T{scope}) AS 'Invalid surrogate key: {name}';"
-            )
-    for child, column, parent, target in foreign_keys():
-        if child in names:
-            scope = " AND C.board_id=@board" if "board_id:id" in DEFINITIONS[child][1] else ""
-            statements.append(
-                f"ASSERT (SELECT COUNT(*)=0 FROM `{prefix}.{child}` C "
-                f"LEFT JOIN `{prefix}.{parent}` P ON C.`{column}`=P.`{target}` "
-                f"WHERE C.`{column}` IS NOT NULL AND P.`{target}` IS NULL{scope}) "
-                f"AS 'Invalid foreign key: {child}.{column}';"
-            )
-    for child, source, child_sk, parent, target, parent_sk in surrogate_foreign_keys():
-        if child in names:
-            scope = " AND C.board_id=@board" if "board_id:id" in DEFINITIONS[child][1] else ""
-            statements.append(
-                f"ASSERT (SELECT COUNT(*)=0 FROM `{prefix}.{child}` C "
-                f"LEFT JOIN `{prefix}.{parent}` P ON C.`{source}`=P.`{target}` "
-                f"AND C.`{child_sk}`=P.`{parent_sk}` "
-                f"WHERE C.`{source}` IS NOT NULL AND P.`{target}` IS NULL{scope}) "
-                f"AS 'Mismatched surrogate: {child}.{child_sk}';"
-            )
-    return statements
+        for column, kind in (f.split(":") for f in FIELDS.split())
+    ]
+
+
+def schema_signature(schema):
+    # REST responses use legacy canonical names even if requests use GoogleSQL aliases.
+    aliases = {"INTEGER": "INT64", "FLOAT": "FLOAT64", "BOOLEAN": "BOOL"}
+    return [(f.name, aliases.get(f.field_type, f.field_type), f.mode) for f in schema]
+
+
+def table_ddl(prefix, name="sla_orcamento"):
+    fields = [
+        f"`{f.name}` {f.field_type}" + (" NOT NULL" if f.mode == "REQUIRED" else "")
+        for f in public_schema()
+    ]
+    return (
+        f"CREATE TABLE IF NOT EXISTS `{prefix}.{name}` (\n  "
+        + ",\n  ".join(fields)
+        + "\n)\nCLUSTER BY board_id, item_id, status_id"
+    )
 
 
 class BigQueryStore:
-    def __init__(self, settings):
-        from google.cloud import bigquery
-
-        if not settings.bq_project:
-            raise ValueError("Defina BQ_PROJECT no .env")
+    def __init__(self, settings, *, client=None, objects=None):
+        if not settings.bq_project or not settings.gcs_bucket:
+            raise ValueError(
+                "Configure BQ_PROJECT e GCS_BUCKET; autenticação usa ADC/service account"
+            )
+        if settings.bq_keyfile:
+            raise ValueError(
+                "BQ_KEYFILE descontinuado; use ADC local ou service account do Cloud Run"
+            )
         self.settings = settings
-        self.bq = bigquery
-        self.prefix = f"{settings.bq_project}.{settings.bq_dataset}"
-        kwargs = {"project": settings.bq_project, "location": settings.bq_location}
-        self.client = (
-            bigquery.Client.from_service_account_json(settings.bq_keyfile, **kwargs)
-            if settings.bq_keyfile
-            else bigquery.Client(**kwargs)
+        self.client = client or bigquery.Client(
+            project=settings.bq_project, location=settings.bq_location
         )
-
-    def initialize(self):
-        dataset = self.bq.Dataset(self.prefix)
-        dataset.location = self.settings.bq_location
-        self.client.create_dataset(dataset, exists_ok=True)
-        metadata, _ = define_tables()
-        for table in metadata.sorted_tables:
-            self.client.query(table_ddl(self.prefix, table.name)).result()
-        self.client.query(
-            f"ALTER TABLE `{self.prefix}.meta_entity_mapping` "
-            "ADD COLUMN IF NOT EXISTS review_reason STRING"
-        ).result()
-        self.client.query(
-            f"ALTER TABLE `{self.prefix}.fct_item_sla_summary` "
-            "ADD COLUMN IF NOT EXISTS sla_start_utc TIMESTAMP, "
-            "ADD COLUMN IF NOT EXISTS sla_start_quality STRING"
-        ).result()
-        # Single consumption table; legacy views are not created in new datasets.
-
-    def create_views(self):
-        p = self.prefix
-        queries = {
-            "gold_project_status": f"""SELECT board_id,item_id,status_id,
-              SUM(duration_minutes) total_minutes, SUM(duration_hours) total_hours,COUNT(*) visit_count
-              FROM `{p}.fct_item_status_interval` GROUP BY board_id,item_id,status_id""",
-            "gold_status_metrics": f"""WITH stats AS (
-              SELECT DISTINCT board_id,status_id,COUNT(*) OVER w interval_count,
-                SUM(duration_minutes) OVER w accumulated_minutes, AVG(duration_minutes) OVER w mean_minutes,
-                PERCENTILE_CONT(duration_minutes,0.5) OVER w median_minutes,
-                PERCENTILE_CONT(duration_minutes,0.95) OVER w p95_minutes
-              FROM `{p}.fct_item_status_interval` WINDOW w AS (PARTITION BY board_id,status_id)
-            ), queue AS (SELECT board_id,current_status_id status_id,COUNT(*) current_item_count
-                FROM `{p}.dim_item` WHERE is_active GROUP BY board_id,current_status_id)
-              SELECT s.*,IFNULL(d.interval_count,0) interval_count,
-                IFNULL(d.accumulated_minutes,0) accumulated_minutes,d.mean_minutes,d.median_minutes,d.p95_minutes,
-                IFNULL(q.current_item_count,0) current_item_count,
-                IF(s.is_terminal,0,IFNULL(q.current_item_count,0)) queue_count
-              FROM `{p}.dim_status` s LEFT JOIN stats d USING(board_id,status_id)
-              LEFT JOIN queue q USING(board_id,status_id)""",
-            "gold_status_bottlenecks": f"""SELECT *,
-                DENSE_RANK() OVER(PARTITION BY board_id ORDER BY accumulated_minutes DESC) time_rank,
-                DENSE_RANK() OVER(PARTITION BY board_id ORDER BY queue_count DESC) queue_rank
-              FROM `{p}.gold_status_metrics` WHERE NOT is_terminal""",
-            "gold_intervals_local": f"""SELECT *,
-              DATETIME(status_start_utc,'{self.settings.preferred_timezone}') status_start_local,
-              DATETIME(status_end_utc,'{self.settings.preferred_timezone}') status_end_local
-              FROM `{p}.fct_item_status_interval`""",
+        self.objects = objects or ObjectStore(settings)
+        self.table_id = f"{settings.bq_project}.{settings.bq_dataset}.{settings.bq_table}"
+        self.identity = {
+            "format": 1,
+            "pipeline": settings.pipeline_name,
+            "table": self.table_id,
+            "location": settings.bq_location,
+            "timezone": settings.preferred_timezone,
         }
-        for name, query in queries.items():
-            self.client.query(f"CREATE OR REPLACE VIEW `{p}.{name}` AS {query}").result()
+        self._data = None
+        self._state_key = None
 
     @contextmanager
     def lock(self):
-        self.settings.runtime_dir.mkdir(parents=True, exist_ok=True)
-        path = self.settings.runtime_dir / f"bq_{self.settings.monday_board_id}.lock"
-        with path.open("a+b") as handle:
-            import os
+        outer = not self.objects.depth
+        with self.objects.lock():
+            if outer:
+                self._state_key = None
+            yield
 
-            if os.name == "nt":
-                import msvcrt
+    def _control(self):
+        raw, generation = self.objects.get("control.json")
+        if raw is None:
+            raise RuntimeError("Estado GCS ausente; execute init-db ou migração explícita")
+        value = json.loads(raw)
+        if value.get("identity") != self.identity:
+            raise RuntimeError("Estado pertence a outro destino/pipeline/configuração")
+        return value, generation
 
-                handle.write(b"0")
-                handle.flush()
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
+    def _save_control(self, control, generation):
+        return self.objects.put_json("control.json", control, generation)
 
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            try:
-                yield
-            finally:
-                if os.name == "nt":
-                    handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    def _read_state(self, descriptor):
+        if self._state_key == descriptor["state"]:
+            return self._data
+        # Cache only within one locked operation, avoiding repeated history downloads.
+        raw, _ = self.objects.get(descriptor["state"])
+        if raw is None or hashlib.sha256(raw).hexdigest() != descriptor["sha256"]:
+            raise RuntimeError(
+                "Checkpoint GCS ausente/corrompido; restaure a geração correspondente"
+            )
+        self._data = decode(raw)
+        validate_state(self._data, self.settings.monday_board_id)
+        self._state_key = descriptor["state"]
+        return self._data
+
+    def _stage_state(self, data, gold_hash):
+        version = uuid.uuid4().hex
+        path = f"generations/{version}/state.json.gz"
+        raw = encode(data)
+        self.objects.put(path, raw)
+        saved, _ = self.objects.get(path)
+        if saved != raw:
+            raise RuntimeError("Checkpoint GCS não reconciliado após upload")
+        return {
+            "version": version,
+            "state": path,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "gold_hash": gold_hash,
+            "publication": None,
+        }
+
+    def initialize(self):
+        with self.lock():
+            dataset = self.client.get_dataset(
+                f"{self.settings.bq_project}.{self.settings.bq_dataset}"
+            )
+            if dataset.location.upper() != self.settings.bq_location.upper():
+                raise ValueError("Localização do dataset difere de BQ_LOCATION")
+            raw, _ = self.objects.get("control.json")
+            if raw is None:
+                try:
+                    self.client.get_table(self.table_id)
+                except NotFound:
+                    pass
                 else:
-                    fcntl.flock(handle, fcntl.LOCK_UN)
+                    raise RuntimeError(
+                        "Tabela existente sem checkpoint; restaure o estado antes de publicar"
+                    )
+                data = {name: [] for name in DEFINITIONS}
+                active = self._stage_state(data, None)
+                self._save_control(
+                    {"identity": self.identity, "active": active, "pending": None}, 0
+                )
+            self._recover()
+            control, _ = self._control()
+            self._read_state(control["active"])
+            self.verify_publication(control["active"])
+
+    def _recover(self):
+        control, generation = self._control()
+        pending = control.get("pending")
+        if pending is None:
+            return
+        candidate = pending["candidate"]
+        self._read_state(candidate)
+        artifact, _ = self.objects.get(pending["artifact"])
+        if artifact is None or hashlib.sha256(artifact).hexdigest() != pending["artifact_sha256"]:
+            raise RuntimeError("Artefato de publicação ausente/corrompido; recuperação bloqueada")
+        try:
+            job = self.client.get_job(pending["job_id"], location=self.settings.bq_location)
+        except NotFound:
+            config = bigquery.LoadJobConfig(
+                schema=public_schema(),
+                source_format="NEWLINE_DELIMITED_JSON",
+                write_disposition="WRITE_TRUNCATE",
+                create_disposition="CREATE_IF_NEEDED",
+                clustering_fields=["board_id", "item_id", "status_id"],
+                max_bad_records=0,
+                ignore_unknown_values=False,
+            )
+            try:
+                job = self.client.load_table_from_uri(
+                    self.objects.uri(pending["artifact"]),
+                    self.table_id,
+                    job_id=pending["job_id"],
+                    location=self.settings.bq_location,
+                    job_config=config,
+                )
+            except Conflict:
+                job = self.client.get_job(pending["job_id"], location=self.settings.bq_location)
+        if (
+            str(job.destination) != self.table_id
+            or job.source_uris != [self.objects.uri(pending["artifact"])]
+            or job.write_disposition != "WRITE_TRUNCATE"
+        ):
+            raise RuntimeError("Job BigQuery incompatível com recibo; recuperação bloqueada")
+        try:
+            job.result(timeout=self.settings.bq_job_timeout_seconds)
+        except Exception:
+            # Unknown outcome retains the journal. Only terminal failure can abandon it.
+            job = self.client.get_job(pending["job_id"], location=self.settings.bq_location)
+            if job.state == "DONE" and job.error_result:
+                control["pending"] = None
+                self._save_control(control, generation)
+                raise RuntimeError(
+                    "Carga BigQuery falhou; publicação anterior preservada"
+                ) from None
+            raise RuntimeError(
+                "Resultado BigQuery pendente; recibo preservado para recuperação"
+            ) from None
+        self.verify_publication(candidate)
+        control.update(active=candidate, pending=None)
+        self._save_control(control, generation)
+        emit(
+            "bq_publication_confirmed",
+            table=self.settings.bq_table,
+            rows=pending["rows"],
+            job_id=pending["job_id"],
+        )
+
+    def verify_publication(self, descriptor=None):
+        descriptor = descriptor or self._control()[0]["active"]
+        if descriptor["gold_hash"] is None:
+            try:
+                self.client.get_table(self.table_id)
+            except NotFound:
+                return
+            raise RuntimeError("Tabela sem recibo confirmado; publicação bloqueada")
+        table = self.client.get_table(self.table_id)
+        actual_schema = schema_signature(table.schema)
+        expected_schema = schema_signature(public_schema())
+        if actual_schema != expected_schema:
+            raise RuntimeError("Schema BigQuery incompatível com contrato público")
+        actual = [dict(row) for row in self.client.list_rows(table)]
+        if digest(actual) != descriptor["gold_hash"]:
+            raise RuntimeError("Consumo alterado fora do pipeline: BigQuery diverge do checkpoint")
+
+    def read_many(self, names, board_id=None):
+        with self.lock():
+            self._recover()
+            control, _ = self._control()
+            data = self._read_state(control["active"])
+            if GOLD in names:
+                self.verify_publication(control["active"])
+            result = {}
+            for name in names:
+                rows = (
+                    publication(data, self.settings.preferred_timezone)[PENDING]
+                    if name == PENDING
+                    else data[name]
+                )
+                result[name] = copy.deepcopy(
+                    [r for r in rows if board_id is None or r.get("board_id", board_id) == board_id]
+                )
+            return result
 
     def read(self, table, board_id=None):
-        if table not in DEFINITIONS:
-            raise ValueError("Tabela não reconhecida")
-        query = f"SELECT * FROM `{self.prefix}.{table}`"
-        params = []
-        if board_id is not None and "board_id:id" in DEFINITIONS[table][1]:
-            query += " WHERE board_id=@board"
-            params = [self.bq.ScalarQueryParameter("board", "INT64", board_id)]
-        rows = [
-            dict(r)
-            for r in self.client.query(
-                query, job_config=self.bq.QueryJobConfig(query_parameters=params)
-            ).result()
-        ]
-        json_fields = [
-            f.split(":")[0] for f in DEFINITIONS[table][1].split() if f.endswith(":json")
-        ]
-        for row in rows:
-            for field in json_fields:
-                if isinstance(row[field], str):
-                    row[field] = json.loads(row[field])
-        return rows
+        return self.read_many([table], board_id)[table]
 
-    def commit(self, payload, board_id):
-        payload = prepare_payload(payload, board_id)
-        script = ["BEGIN TRANSACTION;"]
-        stages = []
-        try:
-            for name, rows in payload.items():
-                if name not in DEFINITIONS:
-                    raise ValueError("Tabela não reconhecida")
-                target = f"`{self.prefix}.{name}`"
-                if name in REPLACE_TABLES:
-                    script.append(f"DELETE FROM {target} WHERE board_id=@board;")
-                if not rows:
-                    continue
-                fields = dict(f.split(":") for f in DEFINITIONS[name][1].split())
-                stage_id = f"{self.prefix}._stage_{name}_{uuid.uuid4().hex}"
-                schema = [self.bq.SchemaField(k, BQ_TYPES[v]) for k, v in fields.items()]
-                stage = self.bq.Table(stage_id, schema=schema)
-                stage.expires = utcnow() + timedelta(hours=24)
-                self.client.create_table(stage)
-                stages.append(stage_id)
+    def commit(self, payload, board_id, *, reviewed=False):
+        if board_id != self.settings.monday_board_id:
+            raise ValueError("Um destino dedicado aceita somente o quadro configurado")
+        with self.lock():
+            self._recover()
+            control, generation = self._control()
+            old = self._read_state(control["active"])
+            data = merge_state(old, payload, board_id, reviewed=reviewed)
+            publish = GOLD in payload
+            if publish:
+                previous = watermark(data["etl_watermark"], self.settings.pipeline_name)
+                validate_gold(
+                    data,
+                    cutoff=closed_day_cut(
+                        previous["last_run_utc"], self.settings.preferred_timezone
+                    )
+                    if previous
+                    else None,
+                )
+                self.verify_publication(control["active"])
+            projected = project(data, self.settings) if publish else None
+            gold_hash = digest(projected[GOLD]) if publish else control["active"]["gold_hash"]
+            candidate = self._stage_state(data, gold_hash)
+            if not publish:
+                candidate["publication"] = control["active"].get("publication")
+                control["active"] = candidate
+                self._save_control(control, generation)
+                return
+            folder = f"generations/{candidate['version']}"
+            artifact = folder + "/sla_orcamento.ndjson"
+            raw = b"\n".join(canonical_json(row) for row in projected[GOLD]) + b"\n"
+            self.objects.put(artifact, raw, content_type="application/x-ndjson")
+            self.objects.put_json(folder + "/pendencias_projeto.json", projected[PENDING])
+            self.objects.put_json(folder + "/calendario.json", projected["calendar"])
+            candidate["publication"] = {
+                "artifact": artifact,
+                "calendar": folder + "/calendario.json",
+                "pending_projects": folder + "/pendencias_projeto.json",
+                "job_id": "sla_" + candidate["version"],
+            }
+            control["pending"] = {
+                "candidate": candidate,
+                "artifact": artifact,
+                "artifact_sha256": hashlib.sha256(raw).hexdigest(),
+                "job_id": "sla_" + candidate["version"],
+                "rows": len(projected[GOLD]),
+            }
+            self._save_control(control, generation)
+            self._recover()
 
-                def encode(row, fields=fields):
-                    encoded = {}
-                    for k in fields:
-                        value = row.get(k)
-                        if fields[k] == "json" and value is not None:
-                            value = json.dumps(value, ensure_ascii=False, default=str)
-                        elif isinstance(value, (datetime, date)):
-                            value = value.isoformat()
-                        encoded[k] = value
-                    return encoded
+    def claim_daily(self, row):
+        with self.lock():
+            if any(r["run_id"] == row["run_id"] for r in self.read("etl_run")):
+                return False
+            self.commit({"etl_run": [row]}, self.settings.monday_board_id)
+            return True
 
-                self.client.load_table_from_json(
-                    [encode(row) for row in rows],
-                    stage_id,
-                    job_config=self.bq.LoadJobConfig(
-                        schema=schema, write_disposition="WRITE_TRUNCATE"
-                    ),
-                ).result()
-                keys = DEFINITIONS[name][0].split(",")
-                on = " AND ".join(f"T.`{k}`=S.`{k}`" for k in keys)
-                updates = ",".join(
-                    f"T.`{k}`=S.`{k}`"
-                    for k in fields
-                    if k not in keys
-                    and not (name == "bronze_monday_activity_log_raw" and k == "ingested_at")
-                )
-                columns = ",".join(f"`{k}`" for k in fields)
-                values = ",".join(f"S.`{k}`" for k in fields)
-                matched = (
-                    ""
-                    if name in {"meta_entity_mapping", "meta_gold_rule_snapshot"}
-                    else f"WHEN MATCHED THEN UPDATE SET {updates} "
-                )
-                script.append(
-                    f"MERGE {target} T USING `{stage_id}` S ON {on} "
-                    f"{matched}"
-                    f"WHEN NOT MATCHED THEN INSERT ({columns}) VALUES ({values});"
-                )
-            script.extend(integrity_assertions(self.prefix, payload.keys()))
-            script.append("COMMIT TRANSACTION;")
-            self.client.query(
-                "\n".join(script),
-                job_config=self.bq.QueryJobConfig(
-                    query_parameters=[self.bq.ScalarQueryParameter("board", "INT64", board_id)]
-                ),
-            ).result()
-        finally:
-            # Only UUID-owned staging tables are deleted; production tables are never dropped.
-            for stage_id in stages:
-                self.client.delete_table(stage_id, not_found_ok=True)
+    def import_state(self, data):
+        self.initialize()
+        with self.lock():
+            current = self.read_many(DEFINITIONS)
+            if any(current.values()):
+                raise RuntimeError("Migração aceita somente estado GCP vazio")
+            validate_state(data, self.settings.monday_board_id)
+            self.commit(data, self.settings.monday_board_id, reviewed=True)
+            if fingerprint(self.read_many(DEFINITIONS)) != fingerprint(data):
+                raise RuntimeError("Migração não reconciliada")
+        return {"table": self.table_id, "state_reconciled": True, "gold_rows": len(data[GOLD])}
+
+    def check_connection(self):
+        with self.lock():
+            control, _ = self._control()
+            self.verify_publication(control["active"])
+            return {
+                "target": self.table_id,
+                "location": self.settings.bq_location,
+                "published": control["active"]["gold_hash"] is not None,
+                "pending": bool(control["pending"]),
+            }
+
+    def write_artifact(self, name, data):
+        path = f"reports/{uuid.uuid4().hex}/{name}.json"
+        self.objects.put_json(path, data)
+        return self.objects.uri(path)
+
+    def backup(self):
+        with self.lock():
+            self._recover()
+            control, _ = self._control()
+            path = f"backups/{uuid.uuid4().hex}/control.json"
+            self.objects.put_json(path, control)
+            return self.objects.uri(path)
 
 
 def export_postgres(settings):
-    from .consumer import ConsumerStore
+    """Explicit read-only source migration. Never drops or rewrites PostgreSQL."""
+    from ..migration.readers import postgres_snapshot
 
-    source, target = ConsumerStore(settings), BigQueryStore(settings)
-    target.initialize()
-    with source.lock(), target.lock():
-        payload = {name: source.read(name, settings.monday_board_id) for name in DEFINITIONS}
-        target.commit(payload, settings.monday_board_id)
-        for name, rows in payload.items():
-            count = len(target.read(name, settings.monday_board_id))
-            if count != len(rows):
-                raise ValueError(f"Contagem divergente após migração: {name}")
-            emit("bq_table_migrated", table=name, rows=count)
+    target = BigQueryStore(settings)
+    with postgres_snapshot(settings) as data:
+        result = target.import_state(data)
+    emit("gcp_migration_verified", **result)

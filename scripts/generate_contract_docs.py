@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from sls_orcamento_pdd.models.bq_consumption import FIELDS, REQUIRED
 from sls_orcamento_pdd.models.contracts import CONTRACT_VERSION, required_columns
 from sls_orcamento_pdd.models.keys import DIMENSION_IDENTITIES
 from sls_orcamento_pdd.models.schemas import DEFINITIONS, foreign_keys
@@ -14,7 +15,7 @@ def main():
         f"Versão {CONTRACT_VERSION}. Fonte: `models/schemas.py` e `models/contracts.py`.",
         "Regenerar com `python scripts/generate_contract_docs.py`.",
         "",
-        "Este é o contrato lógico INTERNO do checkpoint. PostgreSQL 3.1 contém somente as projeções públicas gold_projeto_status e pendencias_projeto, definidas em models/consumption.py. Campos físicos: [OURO_CONSUMO.md](OURO_CONSUMO.md).",
+        "GCP v4 publica somente sla_orcamento no BigQuery. As coleções lógicas abaixo ficam no checkpoint privado GCS; não são tabelas BigQuery. PostgreSQL é legado de migração. Contrato público v5: models/bq_consumption.py. Campos físicos: [OURO_CONSUMO.md](OURO_CONSUMO.md).",
         "Significado de negócio das coleções: [PRD_ELT_REGRAS.md](PRD_ELT_REGRAS.md).",
         "Política de nulos e tratamento: [ARQUITETURA_E_GOVERNANCA.md](ARQUITETURA_E_GOVERNANCA.md).",
         "",
@@ -49,6 +50,24 @@ def main():
             lines.append(f"| `{column}` | {kind} | {'Sim' if required else 'Não'} | {ref} |")
     target = Path(__file__).resolve().parents[1] / "docs" / "CONTRATOS_DE_DADOS.md"
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    public = [
+        "# Contrato físico sla_orcamento — versão 5",
+        "",
+        "Origem: Monday; tratamento e joins em Python. Grão: uma passagem de projeto por status.",
+        "Chave: interval_id; unicidade também em board_id + item_id + ordem_etapa.",
+        "Consumidores: BigQuery/Power BI. Falha de contrato bloqueia carga inteira; preserva publicação anterior.",
+        "Horas desconhecidas ficam NULL. Horas úteis: seg-sex 10–13h / 14–19h, America/Sao_Paulo;",
+        "feriados BR PUBLIC automáticos e BUSINESS_HOLIDAYS adicionais. Sem metas de prazo.",
+        "",
+        "| Campo | Tipo lógico | Obrigatório |",
+        "|---|---|---|",
+    ]
+    for field in FIELDS.split():
+        column, kind = field.split(":")
+        public.append(f"| `{column}` | {kind} | {'Sim' if column in REQUIRED else 'Não'} |")
+    (target.parent / "CONTRATO_SLA_ORCAMENTO.md").write_text(
+        "\n".join(public) + "\n", encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":

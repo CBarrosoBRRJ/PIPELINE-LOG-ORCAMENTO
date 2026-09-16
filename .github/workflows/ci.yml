@@ -1,0 +1,43 @@
+name: Test pipeline
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: '1.9.8'
+      - run: terraform -chdir=infra fmt -check
+      - run: terraform -chdir=infra init -backend=false -input=false
+      - run: terraform -chdir=infra validate -no-color
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: migration_test
+          POSTGRES_USER: migration_test
+          POSTGRES_PASSWORD: local-test-only
+        ports:
+          - 55439:5432
+        options: >-
+          --health-cmd "pg_isready -U migration_test -d migration_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      RUN_MIGRATION_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev,migration]'
+      - run: python -m pytest -q
+      - run: python -m ruff check src tests scripts/generate_ddl.py scripts/generate_contract_docs.py
+      - run: |
+          python scripts/generate_ddl.py
+          python scripts/generate_contract_docs.py
+          git diff --exit-code -- sql docs/CONTRATOS_DE_DADOS.md docs/CONTRATO_SLA_ORCAMENTO.md

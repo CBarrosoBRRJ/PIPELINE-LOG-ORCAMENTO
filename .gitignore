@@ -16,3 +16,10 @@ secrets/
 *.backup
 dist/
 build/
+gha-creds-*.json
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+.terraform/
+service-account*.json

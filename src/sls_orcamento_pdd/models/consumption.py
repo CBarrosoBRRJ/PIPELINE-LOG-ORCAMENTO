@@ -1,4 +1,4 @@
-"""Public PostgreSQL contract: business passages and a project-level correction queue.
+"""Python projection: business passages and private project-level correction queue.
 
 Internal evidence stays unchanged. Unknown dates/durations are NULL in the public
 table, never an estimate presented as a measured SLA.
@@ -9,11 +9,8 @@ import json
 from collections import defaultdict
 from datetime import UTC
 
-from sqlalchemy import CheckConstraint, Column, Index, MetaData, Table, UniqueConstraint
-
 from ..rules.eligibility import EXCLUSION_REASONS
 from ..rules.people import person_name
-from .schemas import TYPES
 
 GOLD = "gold_projeto_status"
 PENDING = "pendencias_projeto"
@@ -74,45 +71,6 @@ PUBLIC_REQUIRED = {
         "item_sk",
     },
 }
-
-
-def consumer_tables(schema):
-    metadata = MetaData(schema=schema)
-    tables = {}
-    for name, fields in PUBLIC_FIELDS.items():
-        tables[name] = Table(
-            name,
-            metadata,
-            *[
-                Column(
-                    column,
-                    TYPES[kind],
-                    primary_key=column in PUBLIC_KEYS[name],
-                    nullable=column not in PUBLIC_REQUIRED[name],
-                )
-                for column, kind in (f.split(":") for f in fields.split())
-            ],
-        )
-    gold = tables[GOLD]
-    gold.append_constraint(
-        UniqueConstraint("board_id", "item_id", "ordem_etapa", name="uq_gold_projeto_ordem")
-    )
-    Index("ix_gold_projeto_status", gold.c.board_id, gold.c.item_id, gold.c.ordem_etapa)
-    Index(
-        "uq_gold_ultima_passagem",
-        gold.c.board_id,
-        gold.c.item_id,
-        unique=True,
-        postgresql_where=gold.c.intervalo_aberto,
-    )
-    for name, condition in {
-        "ck_gold_ordem": "ordem_etapa >= 1",
-        "ck_gold_evidencia": "(qualidade_historico = 'observed' AND entrada_status_utc IS NOT NULL AND entrada_status_local IS NOT NULL AND duracao_horas IS NOT NULL) OR (qualidade_historico IN ('initial_inferred','no_history_inferred') AND entrada_status_utc IS NULL AND entrada_status_local IS NULL AND duracao_horas IS NULL)",
-        "ck_gold_fechamento": "intervalo_aberto = (saida_status_utc IS NULL) AND (entrada_status_utc IS NULL OR entrada_status_utc < corte_utc) AND (saida_status_utc IS NULL OR (saida_status_utc <= corte_utc AND (entrada_status_utc IS NULL OR saida_status_utc >= entrada_status_utc)))",
-        "ck_gold_duracao": "duracao_horas IS NULL OR (duracao_horas >= 0 AND abs(duracao_horas - extract(epoch FROM (coalesce(saida_status_utc,corte_utc)-entrada_status_utc))/3600) < 0.00001)",
-    }.items():
-        gold.append_constraint(CheckConstraint(condition, name=name))
-    return metadata, tables
 
 
 def public_gold(rows):
@@ -230,9 +188,7 @@ def pending_projects(data, timezone="America/Sao_Paulo"):
             # Same local cut as Gold; no wall-clock timestamp mixed into the published batch.
             local_cut = passages[0]["corte_local"] if passages else None
             if local_cut is None:
-                local_cut = (
-                        q["corte_utc"].astimezone(ZoneInfo(timezone)).replace(tzinfo=None)
-                )
+                local_cut = q["corte_utc"].astimezone(ZoneInfo(timezone)).replace(tzinfo=None)
         else:
             local_cut = source["corte_local"]
         result.append(

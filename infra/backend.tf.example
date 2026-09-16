@@ -1,0 +1,9 @@
+# OPTIONAL TEMPLATE: not loaded by Terraform with this .example extension.
+# Have the platform team configure its EXISTING protected state bucket first.
+# Copy to backend.tf after review; never grant runtime access to Terraform state.
+terraform {
+  backend "gcs" {
+    bucket = "REPLACE_WITH_CORPORATE_TERRAFORM_STATE_BUCKET"
+    prefix = "infra/sla-orcamento/prod"
+  }
+}

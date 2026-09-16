@@ -1,46 +1,56 @@
-// Criar UMA medida por vez. Nome importado com espaço; argumentos com vírgula.
-Projetos = DISTINCTCOUNT('orcamento gold_projeto_status'[item_sk])
+// v4: importar sla_orcamento. Criar UMA medida por vez; argumentos com vírgula.
+Projetos = DISTINCTCOUNT('sla_orcamento'[item_sk])
 
-Passagens = COUNTROWS('orcamento gold_projeto_status')
+Passagens = COUNTROWS('sla_orcamento')
 
-Passagens Comprovadas = CALCULATE([Passagens], 'orcamento gold_projeto_status'[qualidade_historico] = "observed")
+Passagens Comprovadas = CALCULATE([Passagens], 'sla_orcamento'[qualidade_historico] = "observed")
 
-Horas por Status = SUM('orcamento gold_projeto_status'[duracao_horas])
+Horas por Status = SUM('sla_orcamento'[duracao_horas])
 
-Retornos = CALCULATE(COUNTROWS('orcamento gold_projeto_status'), 'orcamento gold_projeto_status'[eh_retorno] = TRUE())
+Retornos = CALCULATE(COUNTROWS('sla_orcamento'), 'sla_orcamento'[eh_retorno] = TRUE())
 
-Projetos na Fila = CALCULATE([Projetos], 'orcamento gold_projeto_status'[projeto_na_fila] = TRUE())
+Projetos na Fila = CALCULATE([Projetos], 'sla_orcamento'[projeto_na_fila] = TRUE())
 
-Passagens Observadas Encerradas = CALCULATE([Passagens], 'orcamento gold_projeto_status'[elegivel_comparacao] = TRUE())
+Passagens Observadas Encerradas = CALCULATE([Passagens], 'sla_orcamento'[elegivel_comparacao] = TRUE())
 
-Projetos da Amostra = CALCULATE([Projetos], 'orcamento gold_projeto_status'[elegivel_comparacao] = TRUE())
+Projetos da Amostra = CALCULATE([Projetos], 'sla_orcamento'[elegivel_comparacao] = TRUE())
 
-Horas Observadas Encerradas = SUM('orcamento gold_projeto_status'[horas_observadas_encerradas])
+Horas Observadas Encerradas = SUM('sla_orcamento'[horas_observadas_encerradas])
 
-Media por Passagem h = AVERAGE('orcamento gold_projeto_status'[horas_observadas_encerradas])
+Media por Passagem h = AVERAGE('sla_orcamento'[horas_observadas_encerradas])
 
-Mediana por Passagem h = MEDIAN('orcamento gold_projeto_status'[horas_observadas_encerradas])
+Mediana por Passagem h = MEDIAN('sla_orcamento'[horas_observadas_encerradas])
 
-P95 por Passagem h = PERCENTILEX.INC(FILTER('orcamento gold_projeto_status', 'orcamento gold_projeto_status'[elegivel_comparacao] = TRUE()), 'orcamento gold_projeto_status'[duracao_horas], 0.95)
+P95 por Passagem h = PERCENTILEX.INC(FILTER('sla_orcamento', 'sla_orcamento'[elegivel_comparacao] = TRUE()), 'sla_orcamento'[duracao_horas], 0.95)
 
-Tempo desde Entrada h = IF(HASONEVALUE('orcamento gold_projeto_status'[item_sk]), MAX('orcamento gold_projeto_status'[tempo_desde_entrada_horas]))
+Tempo desde Entrada h = IF(HASONEVALUE('sla_orcamento'[item_sk]), MAX('sla_orcamento'[tempo_desde_entrada_horas]))
 
-Tempo no Status Atual h = IF(HASONEVALUE('orcamento gold_projeto_status'[item_sk]), MAX('orcamento gold_projeto_status'[tempo_status_atual_horas]))
+Tempo no Status Atual h = IF(HASONEVALUE('sla_orcamento'[item_sk]), MAX('sla_orcamento'[tempo_status_atual_horas]))
 
-Status Atual Projeto = IF(HASONEVALUE('orcamento gold_projeto_status'[item_sk]), SELECTEDVALUE('orcamento gold_projeto_status'[status_atual_nome]))
+Status Atual Projeto = IF(HASONEVALUE('sla_orcamento'[item_sk]), SELECTEDVALUE('sla_orcamento'[status_atual_nome]))
 
-Etapas Percorridas = IF(HASONEVALUE('orcamento gold_projeto_status'[item_sk]), DISTINCTCOUNT('orcamento gold_projeto_status'[status_id]))
+Etapas Percorridas = IF(HASONEVALUE('sla_orcamento'[item_sk]), DISTINCTCOUNT('sla_orcamento'[status_id]))
 
-Ultimo Corte = MAX('orcamento gold_projeto_status'[corte_local])
+Ultimo Corte = MAX('sla_orcamento'[corte_local])
 
-Mediana Validacao Talento h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('orcamento gold_projeto_status'[status_nome] = "Em revisão - Validação Talento"))
+Mediana Validacao Talento h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('sla_orcamento'[status_nome] = "Em revisão - Validação Talento"))
 
-Mediana Retorno Marca h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('orcamento gold_projeto_status'[status_nome] = "Em elaboração - Retorno Marca/Executivo"))
+Mediana Retorno Marca h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('sla_orcamento'[status_nome] = "Em elaboração - Retorno Marca/Executivo"))
 
-Mediana Feedback h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('orcamento gold_projeto_status'[status_nome] = "Aguardando Feedback"))
+Mediana Feedback h = CALCULATE([Mediana por Passagem h], KEEPFILTERS('sla_orcamento'[status_nome] = "Aguardando Feedback"))
 
-Projetos Amostra Talento = CALCULATE([Projetos da Amostra], KEEPFILTERS('orcamento gold_projeto_status'[status_nome] = "Em revisão - Validação Talento"))
+Projetos Amostra Talento = CALCULATE([Projetos da Amostra], KEEPFILTERS('sla_orcamento'[status_nome] = "Em revisão - Validação Talento"))
 
-Projetos com Pendencias = COUNTROWS('orcamento pendencias_projeto')
+Horas Uteis por Status = SUM('sla_orcamento'[duracao_horas_uteis])
 
-Projetos Excluidos = CALCULATE([Projetos com Pendencias], 'orcamento pendencias_projeto'[excluido_da_analise] = TRUE())
+Media por Passagem h Uteis = AVERAGE('sla_orcamento'[horas_uteis_observadas_encerradas])
+
+Mediana por Passagem h Uteis = MEDIAN('sla_orcamento'[horas_uteis_observadas_encerradas])
+
+P95 por Passagem h Uteis = PERCENTILEX.INC(FILTER('sla_orcamento', 'sla_orcamento'[elegivel_comparacao] = TRUE()), 'sla_orcamento'[horas_uteis_observadas_encerradas], 0.95)
+
+Tempo desde Entrada h Uteis = IF(HASONEVALUE('sla_orcamento'[item_sk]), MAX('sla_orcamento'[tempo_desde_entrada_horas_uteis]))
+
+Tempo no Status Atual h Uteis = IF(HASONEVALUE('sla_orcamento'[item_sk]), MAX('sla_orcamento'[tempo_status_atual_horas_uteis]))
+
+// Pendencias operacionais ficam no GCS, fora do modelo publico. Nao criar segunda tabela BQ.

@@ -4,17 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sls-orcamento-pdd"
-version = "3.1.0"
-description = "Pipeline Monday Bronze/Silver/Gold para SLA de projetos"
+version = "4.0.0"
+description = "Monday para sla_orcamento no BigQuery, executado em Cloud Run Jobs"
 requires-python = ">=3.11"
 dependencies = [
-  "SQLAlchemy>=2.0,<2.1", "psycopg[binary]>=3.2,<4",
-  "pydantic-settings>=2.7,<3", "requests>=2.32,<3", "tzdata>=2025.1"
+  "pydantic-settings>=2.7,<3", "requests>=2.32,<3", "tzdata>=2025.1",
+  "google-cloud-bigquery>=3.45.1,<4", "google-cloud-storage>=3.14.1,<4", "holidays==0.104"
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
-bigquery = ["google-cloud-bigquery>=3.30,<4"]
+migration = ["psycopg[binary]>=3.2,<4"] # Read-only import from the former PostgreSQL.
 
 [project.scripts]
 sla-pipeline = "sls_orcamento_pdd.cli:main"

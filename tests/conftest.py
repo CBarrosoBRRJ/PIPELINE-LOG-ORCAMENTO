@@ -94,3 +94,28 @@ def sample(settings, board):
         [snapshot(raw_item(), mapping, labels, settings, at())],
         statuses,
     )
+
+
+class FakeMonday:
+    """Deterministic Monday double shared by cloud and migration tests."""
+
+    def __init__(self, board, fail=False):
+        self.schema = board
+        self.pages_items = self.pages_logs = self.calls = 0
+        self.fail = fail
+
+    def board(self):
+        return self.schema
+
+    def item_pages(self):
+        self.pages_items += 1
+        yield [raw_item()]
+
+    def users(self, ids):
+        return [{"id": "99", "name": "Pessoa teste", "email": None}]
+
+    def activity_page(self, page, start, end):
+        if self.fail:
+            raise RuntimeError("Falha de extração simulada")
+        self.pages_logs += 1
+        return [raw_event()] if page == 1 else []

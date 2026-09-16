@@ -1,148 +1,30 @@
-> **Contrato de consumo 3.1.0:** o PostgreSQL publica somente Gold (33 campos, estimativas mascaradas) e `pendencias_projeto` (15 campos, uma linha por projeto). O usuário autorizou essa segunda tabela para revisão. As coleções técnicas descritas abaixo são privadas em runtime. Dicionário físico atual: [OURO_CONSUMO.md](OURO_CONSUMO.md); passo a passo atual: [CONSUMO_DIRETO.md](CONSUMO_DIRETO.md). `models/consumption.py` aplica a projeção pública após a Gold interna; `db/consumer.py` publica as duas tabelas atomicamente. Regras 2.2.1 rejeitam nomes técnicos de usuários excluídos. Para migrar versões anteriores: `migrate-consumption`.
+# Processamento Python e estado privado
 
-# PRD da ELT — manutenção 3.1
+O fluxo atual é ETL: extrai Monday, transforma em Python e carrega somente a saída pronta no BigQuery.
 
-**Arquitetura atual:** código Python → checkpoint privado no volume → Gold e pendências PostgreSQL. Regras 2.2.1; contrato lógico interno 2.2.0 e contrato físico de consumo 4. Estimativas permanecem no estado privado; o consumo publica NULL nos tempos não comprovados. Comece pelo [PRD principal](../PRD.md) e siga o [procedimento de operação](../OPERATIONS.md).
+1. Descoberta: `services/extract.py` identifica colunas, rótulos e mapeamentos explícitos.
+2. Captura: schema do quadro, snapshots cadastrais e eventos são preservados em Bronze.
+3. Reconstrução: `services/transform.py` deduplica eventos, ordena transições e calcula passagens, resumos e coleções diárias internas.
+4. Governança: `rules/` aplica identidade, elegibilidade, pessoas, corte D+1 e calendário.
+5. Gold: `services/gold.py` une cadastros e evidências, aplica exclusões por projeto e mantém IDs.
+6. Consumo: `models/consumption.py` oculta estimativas no consumo; `models/bq_consumption.py` acrescenta horas úteis.
+7. Persistência: `db/bq.py` salva estado no GCS e publica sla_orcamento atomicamente. `db/gcs.py` gerencia objetos e trava por geração.
 
+## Por que manter coleções internas?
 
-Versão de aplicação 3.1.0 · 11/09/2026. Este é o mapa atual para implementar, revisar e operar regras. O [guia de consumo](OURO_CONSUMO.md) explica os campos e o Power BI; o [contrato gerado](CONTRATOS_DE_DADOS.md) registra tipos, chaves e nulabilidade. Documentos marcados como legados não definem o modelo novo.
+Bronze permite replay sem depender de a API ainda ter eventos antigos. Dimensões, fatos, catálogos, problemas de qualidade e execuções mantêm identidade e auditabilidade. São objetos dentro do checkpoint JSON gzip, não tabelas para o usuário administrar. Removê-los mudaria o contrato histórico e prejudicaria a migração.
 
-## 1. Resultado e limite do produto
+Inventário: [contratos internos](CONTRATOS_DE_DADOS.md). Campos públicos: [sla_orcamento](CONTRATO_SLA_ORCAMENTO.md). Decisões: [governança](ARQUITETURA_E_GOVERNANCA.md).
 
-O Python extrai, trata, valida e publica `dados_globo.orcamento.gold_projeto_status`. O Power BI importa essa tabela para indicadores e `pendencias_projeto` para revisão. Uma linha significa **uma passagem de um projeto por um status**, com data/hora de entrada e saída, duração, Marca, Talento e responsável da coluna Orçamento. Retornar a uma etapa gera outra passagem legítima, com `eh_retorno=true`; não é duplicidade.
+## Organização do código
 
-O produto mede permanência corrida, inclusive noites e finais de semana. Não existem metas de SLA definidas. A primeira etapa de negócio é Entrada, mas a primeira linha histórica disponível pode ser outra: não inventamos eventos ou datas ausentes. A comparação de desempenho usa `elegivel_comparacao=true` (passagens observadas, encerradas e sem divergência detectada). Tempos inferidos ficam NULL no consumo, com qualidade e motivo de pendência explícitos.
+- `clients/`: acesso Monday via requests, com retries e tratamento de falhas.
+- `models/`: contratos, chaves e projeções.
+- `rules/`: regras de negócio.
+- `services/`: extração, transformação, qualidade, revisão e saúde.
+- `pipelines/runner.py`: coordenação de backfill, daily e replay.
+- `db/`: exclusivamente BigQuery/GCS e serialização.
+- `migration/`: leitura opcional do checkpoint e PostgreSQL antigos; sem DDL/DML.
+- `deploy/`, `infra/`, `.github/workflows/`: execução, infraestrutura e entrega.
 
-## 2. Horário, corte e recuperação
-
-Configuração: `CRON_SCHEDULE=0 6 * * *`, `PREFERRED_TIMEZONE=America/Sao_Paulo`, uma réplica, comando `loop`. O processo espera o próximo horário; subir ou reiniciar o container **não dispara carga imediata**. Não instalar outro cron junto com esse loop.
-
-Exemplo: execução de 12/09 às 06h → Gold com `corte_local=12/09 00:00`, cobrindo tempos até o fim de 11/09. Entradas de status exatamente à meia-noite pertencem ao próximo fechamento. A última passagem incluída tem saída nula e duração limitada ao corte. Projetos que só começaram depois desse limite não aparecem nessa publicação.
-
-Há dois relógios diferentes:
-
-| Relógio | Uso |
-|---|---|
-| `etl_watermark.last_run_utc` | Início da coleta bem-sucedida; referência da extração incremental |
-| `gold_projeto_status.corte_utc/local` | Limite exclusivo do dia fechado para tempos e sequência |
-| `cadastro_referencia_utc` | Quando o cadastro de Marca, Talento, responsáveis e atividade foi observado |
-
-A API fornece o cadastro observado durante a coleta. **Não afirmamos que esses atributos estavam assim à meia-noite ou na passagem antiga.** Marca, Talento, responsável e atividade do projeto são a atribuição cadastral disponível, com data de referência. O status publicado é a última etapa do histórico anterior ao corte; divergências da origem continuam sinalizadas. Uma correção de cadastro pode reclassificar todo o histórico.
-
-Antes da extração agendada, o executor grava uma reserva na coleção privada `etl_run`: `run_id` UUID determinístico de pipeline + data local, `mode=scheduled`. A checagem de chave sob advisory lock e a persistência no checkpoint impedem uma segunda reserva da mesma data. Reinício, outro processo ou repetição do comando `daily` não duplicam uma data já reservada. O registro passa a `success` na publicação ou `failed` em falha; uma queda abrupta pode deixá-lo `running`, o que também bloqueia repetição automática.
-
-É uma tentativa automática por dia, sem retry de lote. Retries de requisições HTTP dentro da mesma tentativa não são cargas adicionais. Se a VPS estiver desligada às 06h, não há como garantir execução naquele instante: o loop espera o próximo horário quando voltar. Corrigir a causa e executar recuperação manual quando necessário. `daily` manual também usa a reserva diária; `backfill` é recuperação excepcional autorizada e pode consultar o histórico completo. `replay` recalcula a partir do material já coletado, sem Monday e sem avançar o watermark. Nenhum desses comandos deve ser colocado como segunda tarefa automática.
-
-O primeiro ambiente novo precisa de `backfill` antes de ativar o agendador. A regra de reserva durável está homologada para PostgreSQL. O agendador equivalente em BigQuery é uma etapa futura da migração corporativa.
-
-## 3. Passo a passo da transformação
-
-1. **Configuração:** `config.py` lê variáveis sem expor segredos. Confere quadro, coluna de status, títulos/overrides, fuso e finais. `pipelines/runner.py` controla a execução e o lock.
-2. **Descoberta:** `services/extract.py::discover` lê IDs, títulos e tipos das colunas; identifica status e pessoas. Mapeamento ambíguo bloqueia publicação. Status novos da mesma coluna são descobertos pelo índice; novos finais exigem atualização explícita de `FINAL_STATUS_LABELS`.
-3. **Coleta:** pagina todos os itens ativos e reconcilia a contagem do quadro. Consulta os logs por janelas limitadas, com sobreposição incremental e página de segurança. Eventos são identificados pelo ID original. Repetição de página ou janela saturada não resolvida provoca falha.
-4. **Bronze:** mantém envelopes originais de logs, snapshots dos itens e schema do quadro. `merge_rows` deduplica por PK. Snapshot é uma observação por item/data, não cada alteração do cadastro. O histórico de eventos não deve ser reconstruído apenas a partir do estado atual do Monday.
-5. **Tratamento:** `services/clean.py` valida entradas e limpa cópias: Unicode NFC, espaços e vazios. Não muda IDs nem JSON bruto; não preenche desconhecidos com zero.
-6. **Prata e tempos técnicos:** `services/transform.py` ordena os eventos, mantém empates na ordem nativa, deduplica movimentos sem mudança de status e constrói intervalos contíguos. Separa observado de inferido, calcula resumo e distribuição diária e reconcilia as durações.
-7. **Elegibilidade/identidades/pessoas:** módulos em `rules/` aplicam as regras abaixo ao cadastro disponível. A exclusão remove o projeto inteiro da Gold. Diagnósticos registram motivo e versão; não descartam a evidência usada para a decisão.
-8. **Gold D+1:** `services/gold.py` enriquece as passagens; `rules/cutoff.py` retém somente entradas anteriores ao corte, limita a última duração e recalcula status no corte, primeira/última linha e totais comprovados. Não altera a Bronze ou os intervalos técnicos da coleta.
-9. **Validação:** contrato + referências internas + reconciliação com origem + sequência + retornos + conjunto exato de passagens elegíveis. PK, NOT NULL, UNIQUE, índice parcial e CHECKs da Gold complementam as regras Python; não existem FKs para tabelas removidas.
-10. **Projeção pública:** `models/consumption.py` mantém os dez campos de negócio primeiro, preserva IDs, mascara início/duração inferidos e produz uma linha por projeto com pendências.
-11. **Publicação:** `db/consumer.py::commit` prepara estado durável no volume, substitui Gold, pendências e recibo em uma transação PostgreSQL, depois promove o checkpoint. Falha recupera a geração apontada pelo recibo. A reserva operacional é publicada antes da extração para sobreviver à falha e impedir repetição automática. Não existe transação distribuída nativa entre SQLite e PostgreSQL.
-
-O parsing/tratamento ocorre em memória antes da preparação do checkpoint candidato. Não há landing independente anterior à transformação. O termo ELT descreve o fluxo de dados; operacionalmente há ETL em Python e replay das evidências guardadas no volume. Não há tratamento pesado dentro do Power BI.
-
-## 4. Onde ficam as regras
-
-| Arquivo | Responsabilidade | Testes principais |
-|---|---|---|
-| `services/clean.py` | Limpeza sem modificar a fonte | `tests/test_contracts.py` e testes de transformação |
-| `services/extract.py` | Colunas, paginação, parsing, IDs de status | Testes de extração/cliente |
-| `services/transform.py` | Cronologia, Entrada, permanência, inferências | `tests/test_transform.py` |
-| `rules/eligibility.py` | Exclusão integral de projetos e códigos dos motivos | `tests/test_gold.py` |
-| `rules/identities.py` | Catálogo, normalização e aprovação canônica | `tests/test_gold.py`, `tests/test_postgres.py` |
-| `rules/people.py` | Orçamento e demais papéis, deduplicação de pessoas | `tests/test_gold.py` |
-| `rules/cutoff.py` | Fechamento diário e projeção dos tempos até o limite | `tests/test_cutoff.py` |
-| `rules/__init__.py` | Versão semântica das regras | Versão gravada na publicação |
-| `services/gold.py` | Montagem e reconciliação da tabela final | `tests/test_gold.py`, `tests/test_cutoff.py` |
-| `services/scheduler.py` | Horário diário sem carga ao iniciar | `tests/test_scheduler.py` |
-| `db/consumer.py`, `db/checkpoint.py` | Reserva diária, estado durável, recuperação e publicação das duas tabelas de negócio | `tests/test_consumer.py` |
-| `db/postgres.py` | Adaptador legado de migração e lock PostgreSQL; não usado para criar tabelas na rotina atual | `tests/test_postgres.py` |
-| `models/consumption.py` | Contrato físico, projeção e pendências recalculadas | `tests/test_consumption.py`, `tests/test_consumer.py` |
-| `models/schemas.py`, `models/contracts.py` | Grão, tipos, relações e validações portáteis | Testes de contrato, chaves e PostgreSQL |
-
-### Exclusões vigentes
-
-| Código | Condição | Efeito |
-|---|---|---|
-| `talento_ambas_colunas` | Talento e Interveniência preenchidos, mesmo texto | Excluir projeto de toda Gold |
-| `talento_multiplo` | Vários IDs no dropdown ou lista textual explícita | Excluir projeto de toda Gold |
-| `talento_squad` | Squad de Talentos | Excluir projeto de toda Gold |
-| `talento_nao_individual` | Coletivo/organização identificado ou aprovado como tal | Excluir projeto de toda Gold |
-| `talento_identidade_pendente` | Interveniência sem pessoa individual revisada | Quarentena; excluir projeto da Gold |
-| `talento_revisao_manual`, `marca_revisao_manual` | Grafia/identidade marcada como `quarantined` no catálogo | Quarentena; excluir projeto da Gold |
-
-Os motivos podem se sobrepor. A regra textual identifica vírgula, ponto e vírgula, quebra de linha, `+` e `&`/`/` entre espaços. Uma pessoa individual aprovada pode esclarecer pontuação do nome; não anula múltiplos IDs nem ambas as colunas preenchidas. A lista de coletivos conhecidos é explícita, não um classificador infalível de qualquer nome.
-
-Marca/Talento nulo não exclui automaticamente o projeto. Interveniência ainda não revisada exclui o projeto inteiro da Gold e gera `talento_identidade_pendente` na quarentena. Uma grafia de Marca/Talento explicitamente marcada como `quarantined` também bloqueia o projeto. Os exclusivos com nome único são classificados como `cadastro_exclusivo`; isso não significa revisão humana de toda grafia. Rankear pessoas exige verificar cobertura e excluir nomes vazios.
-
-### Identidades e erro de digitação
-
-O mecanismo automático limpa formato; o catálogo `meta_entity_mapping` resolve equivalência real. Duas grafias da mesma pessoa ou Marca recebem o mesmo `canonical_id`, nome e tipo, somente após revisão. Não unir pessoas por similaridade, nem converter coletivos em pessoas individuais. Não há IA externa ou serviço pago neste processo.
-
-Revisar aliases pelo catálogo exportado (`export-review`): localizar candidatos, confirmar com a equipe, preencher identidade/tipo/revisor, aprovar e atualizar `updated_at`; importar com `import-review --review-file`. O catálogo não é uma tabela PostgreSQL. Não alterar `source_key` para corrigir o nome. A próxima carga aplica a revisão; `replay` antecipa a aplicação usando a coleta já existente. Aprovações conflitantes ou incompletas bloqueiam a publicação; o pipeline nunca sobrescreve revisão humana.
-
-## 5. Como acrescentar ou mudar uma regra
-
-1. Escrever a regra de negócio e exemplos de aceitação/rejeição. Declarar se afeta projeto inteiro, passagem ou somente apresentação; definir a ação para NULL e o efeito sobre histórico.
-2. Se for equivalência ou suspeita de nomes, editar o catálogo revisado conforme [QUARENTENA_E_IDENTIDADES.md](QUARENTENA_E_IDENTIDADES.md). Se for regra geral, alterar o módulo correspondente em `rules/`; incluir código estável em `EXCLUSION_REASONS` quando for exclusão. `talent_decision` deve retornar os motivos, nunca apagar a origem.
-3. Acrescentar teste com caso válido, inválido, nulo e reinclusão após correção. Para tempo, testar limite do corte, retorno, empate e trecho inferido. Para duplicidade, testar tentativa de gravação e rollback no PostgreSQL local.
-4. Incrementar `RULE_VERSION` quando houver mudança semântica. A publicação registra versão + hash de configuração/catálogo em `versao_regras` e conserva seu conteúdo em `meta_gold_rule_snapshot`. Mudança de estrutura também exige versão do contrato e migração explícita.
-5. Executar Ruff, testes e integração **no PostgreSQL local**, com configuração separada. Nunca apontar fixtures de teste para a VPS.
-6. Se mudar schema/contrato, executar `python scripts/generate_ddl.py` e `python scripts/generate_contract_docs.py`. Atualizar este PRD, dicionário, exemplos SQL e medidas afetadas.
-7. Executar `sla-pipeline preview-gold` para calcular a proposta sobre a coleta existente sem gravar ou consultar Monday. Fazer backup e confirmar restore antes de mudar dados. Preparar comparação no mesmo corte: contagens, projetos excluídos, conjunto de IDs, horas e casos que mudaram por regra. Diferença precisa ser explicada, não apenas aceita porque o teste passou.
-8. Publicar código no GitHub e conferir a imagem efetivamente implantada. `git push` não prova deploy. Reprocessar a Gold com o código correto quando necessário; validar antes de atualizar o Power BI.
-
-Para desfazer: restaurar regra/catálogo anterior e reprocessar a partir da Bronze compatível, após verificar o corte. O replay normal usa o catálogo atual, não seleciona automaticamente uma versão histórica. Backup testado é a recuperação se a origem já não estiver disponível. Não reenumerar SKs ou apagar o histórico para corrigir grafia.
-
-## 6. Armazenamento versão 3.1
-
-PostgreSQL contém **somente gold_projeto_status e pendencias_projeto**. As 19 tabelas técnicas foram excluídas; a segunda tabela pública foi autorizada depois, para revisão. Bronze/Prata/controle/revisões continuam como coleções privadas compactadas em `/app/runtime/pipeline_state_orcamento_18429499488.sqlite3`, usando os contratos abaixo. Não criar outro schema técnico.
-
-O volume é obrigatório. `db/consumer.py` implementa publicação e migração; `db/checkpoint.py` faz gravação durável e recuperação por recibo. O recibo da geração publicada fica no comentário da Gold, atualizado no mesmo commit que as duas tabelas públicas. PK, UNIQUE, CHECKs e índice único da última passagem são PostgreSQL; referências entre coleções são validadas em Python.
-
-Inventário **lógico interno**, não inventário de tabelas do banco:
-
-| Tabela | Informação e finalidade |
-|---|---|
-| `gold_projeto_status` (coleção interna) | Evidência completa das passagens elegíveis; a projeção pública de 33 campos mascara as estimativas |
-| `quarentena_projeto` (coleção interna) | Fila de saneamento: projeto, nomes originais, motivos e versão; não entra nos KPIs |
-| `bronze_monday_activity_log_raw` | Eventos originais; deduplicação por ID e reconstrução do histórico |
-| `bronze_monday_item_snapshot_raw` | Cadastros/estado observados por item e data; origem de atributos e exclusões |
-| `bronze_monday_board_schema_raw` | Configuração do quadro/mapeamentos por data; replay |
-| `silver_monday_status_event_stg` | Eventos de status tipados, relacionados à origem |
-| `dim_board` | Identidade/configuração relacional do quadro |
-| `dim_item` | ID/SK e cadastro técnico do projeto; integridade referencial |
-| `dim_status` | ID/SK, nome, ordem e classificação final dos status |
-| `dim_person` | IDs dos usuários Monday e nomes disponíveis |
-| `bridge_item_person` | Pessoa, projeto, coluna/papel e data de observação |
-| `fct_item_status_interval` | Intervalos técnicos completos para reconciliar a Gold |
-| `fct_item_status_daily` | Distribuição diária dos tempos; teste de reconciliação e base de evolução temporal |
-| `fct_item_sla_summary` | Resumo técnico, início comprovado e status para transformação |
-| `data_quality_issue` | Diagnósticos atuais por projeto/código, exclusões e pendências |
-| `meta_column_mapping` | Quais colunas são extraídas/modeladas e sua origem |
-| `meta_entity_mapping` | Correspondências de Marca/Talento e revisão humana |
-| `meta_gold_rule_snapshot` | Conteúdo imutável de cada versão de regras aplicada |
-| `etl_watermark` | Última coleta publicada com sucesso; controle incremental |
-| `etl_run` | Auditoria de execução, reserva diária, resultado e métricas |
-
-As views anteriores e as 19 tabelas auxiliares não são recriadas. `PostgresStore` é adaptador legado de migração/testes; a execução normal usa `ConsumerStore`. Quarentena/catálogo são exportados em CSV/JSON, conforme [guia de revisão](QUARENTENA_E_IDENTIDADES.md). Backup precisa incluir o checkpoint junto do dump PostgreSQL.
-
-## 7. Aceite e consumo
-
-Executar `validate`, `validate-gold` e `quality-profile`: conferem, respectivamente, a reconciliação técnica, a Gold contra intervalos/eligibilidade/corte e o contrato das 20 coleções internas e da publicação única. Leitura de validação PostgreSQL usa snapshot consistente para não misturar duas publicações.
-
-Confirmar no banco: PKs sem duplicidade, UNIQUE `(board_id,item_id,ordem_etapa)`, uma última passagem por projeto, horas reconciliadas, corte único, nenhum projeto excluído presente e versão esperada. O [SQL de verificação](../sql/011_validar_consumo.sql) permite conferir pelo DBeaver sem acessar a VPS.
-
-Atualizar o Power BI **após** a carga terminar, e não às 06h em ponto. A duração depende da API/rede. Usar `corte_local` no relatório para mostrar até quando os tempos valem. Para Projeto 360°, filtrar `item_id`, ordenar `ordem_etapa` e exibir qualidade junto das datas/horas. Para rankings, usar mediana, P95 e tamanho da amostra de passagens observadas encerradas. Não somar `tempo_desde_entrada_horas` repetido em cada linha: usar MAX por projeto ou uma agregação por projeto.
-
-Limites conhecidos: retenção de logs do Monday, cadastro sem revisão integral, atributos históricos não reconstruídos, VPS provisória, sem alerta externo e sem homologação real no BigQuery. Constraints impedem duplicidade técnica; elas não provam que uma grafia ou informação preenchida na origem está correta. Esses limites acompanham os indicadores, em vez de serem ocultados com preenchimentos artificiais.
+PostgreSQL, cron/VPS, Databricks e Compose não são destinos ativos. A versão histórica continua recuperável no Git; o corte anterior à migração GCP é `fd8226e`.

@@ -45,8 +45,6 @@ def run(settings, mode="daily", *, client=None, store=None, at=None, scheduled_f
         store.initialize()
         with store.lock():
             if scheduled_for is not None:
-                if not hasattr(store, "claim_daily"):
-                    raise ValueError("Agendamento diário durável homologado apenas em PostgreSQL")
                 if not store.read("dim_board", settings.monday_board_id):
                     raise ValueError(
                         "Inicialize o histórico com backfill antes de ativar o agendamento"
@@ -84,21 +82,14 @@ def run(settings, mode="daily", *, client=None, store=None, at=None, scheduled_f
                 settings.backfill_from
             ):
                 settings = settings.model_copy(update={"backfill_from": board["created_at"]})
-            settings.runtime_dir.mkdir(parents=True, exist_ok=True)
-            (settings.runtime_dir / "board_mapping.json").write_text(
-                json.dumps(
-                    {
-                        "board_id": board["id"],
-                        "board_name": board["name"],
-                        "mapping": mapping,
-                        "columns": board["columns"],
-                        "statuses": statuses,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
+            mapping_report = {
+                "board_id": board["id"],
+                "board_name": board["name"],
+                "mapping": mapping,
+                "columns": board["columns"],
+                "statuses": statuses,
+            }
+            store.write_artifact("board_mapping", mapping_report)
             snapshots = []
             for page in client.item_pages():
                 snapshots.extend(snapshot(i, mapping, labels, settings, started) for i in page)
@@ -263,6 +254,16 @@ def run(settings, mode="daily", *, client=None, store=None, at=None, scheduled_f
         if claimed:
             # Keep the claim even on failure: no automatic second attempt today.
             try:
+                # A lost acknowledgement may have committed successfully; recovery
+                # must settle that job before marking the attempt as failed.
+                confirmed = next((r for r in store.read("etl_run") if r["run_id"] == run_id), None)
+                if confirmed and confirmed["status"] == "success":
+                    report["status"] = "success"
+                    report["failures"] = 0
+                    report.pop("error", None)
+                    report.pop("error_type", None)
+                    emit("pipeline_recovered", run_id=run_id)
+                    return report
                 store.commit(
                     {
                         "etl_run": [
@@ -281,10 +282,16 @@ def run(settings, mode="daily", *, client=None, store=None, at=None, scheduled_f
                 )
             except Exception:
                 emit("daily_failure_record_unavailable", run_id=run_id)
-        write_status(settings, report)
+        try:
+            write_status(settings, report, store)
+        except Exception:
+            emit("execution_report_unavailable", run_id=run_id)
         emit("pipeline_end", **report)
         raise
-    write_status(settings, report)
+    try:
+        write_status(settings, report, store)
+    except Exception:
+        emit("execution_report_unavailable", run_id=run_id)
     emit("pipeline_end", **report)
     return report
 

@@ -1,8 +1,27 @@
-# Dicionário das duas tabelas públicas — 3.1.0
+# Dicionário de sla_orcamento — contrato GCP 5
 
-Regras, exemplos e roteiro: [CONSUMO_DIRETO.md](CONSUMO_DIRETO.md). Campos internos anteriores não representam mais o contrato físico do PostgreSQL.
+BigQuery publica somente `gglobo-viu-dados-hdg-prd.viu_agenciamento.sla_orcamento`. Todos os joins, cadastros, regras e cálculos são feitos em Python. Uma linha = uma passagem de projeto por status; projetos que retornam a um status possuem outra linha com eh_retorno=true. Não é uma linha por projeto nem por dia. Ordene por item_id, ordem_etapa. Contrato gerado: [CONTRATO_SLA_ORCAMENTO.md](CONTRATO_SLA_ORCAMENTO.md).
 
-## gold_projeto_status
+O histórico de passagens é preservado na tabela atualizada, mas ela não armazena cópias diárias da publicação. Corte D+1 vale para tempos; cadastro_referencia_utc pode ser posterior ao corte. As durações não comprovadas são NULL (não zero). Intervalo fora do expediente pode ter zero hora útil e duração corrida positiva.
+
+## Campos de horas úteis adicionados em GCP
+
+| Campo | Unidade/nulabilidade | Significado |
+|---|---|---|
+| duracao_horas_uteis | horas, nullable | Permanência desta passagem dentro do expediente até saída ou corte |
+| horas_uteis_observadas_encerradas | horas, nullable | Horas úteis somente em passagem elegível para comparação; média/mediana de encerradas |
+| tempo_status_atual_horas_uteis | horas, nullable | Tempo útil na última etapa comprovada; repetido nas linhas do projeto, consumir MAX por projeto |
+| tempo_desde_entrada_horas_uteis | horas, nullable | Tempo útil desde Entrada comprovada até finalização/corte; repetido, consumir MAX por projeto |
+| expediente | STRING, obrigatório | seg-sex 10:00-13:00 / 14:00-19:00 |
+| versao_calendario | STRING, obrigatório | Identifica política, fuso, versão holidays e feriados adicionais |
+
+Calendário: America/Sao_Paulo, 8h/dia de trabalho, sábados/domingos excluídos. Nacionais gerados automaticamente por ano (`holidays`, BR PUBLIC), incluindo Sexta-feira da Paixão e 20/11 a partir de 2024 conforme a biblioteca. Carnaval e Corpus Christi ficam fora da exclusão automática. `BUSINESS_HOLIDAYS` adiciona locais/recessos. Datas efetivas usadas ficam em calendario.json da publicação. Atualizações legais futuras exigem atualização testada da biblioteca e replay; não há consulta anual a uma API externa.
+
+Exemplos: 12h30–14h30 de dia útil = 1h útil; sexta 18h até segunda 11h = 2h úteis se segunda não for feriado. Nenhuma meta de prazo está definida.
+
+Os 33 campos abaixo permanecem no consumo e seis campos úteis são acrescentados: total 39. Datas UTC são TIMESTAMP, datas locais DATETIME, IDs INT64, números FLOAT64, flags BOOL e textos STRING no BigQuery.
+
+## Campos base de sla_orcamento
 
 | Campo | Tipo | Aceita NULL | Descrição |
 |---|---|---|---|
@@ -39,7 +58,7 @@ Regras, exemplos e roteiro: [CONSUMO_DIRETO.md](CONSUMO_DIRETO.md). Campos inter
 | `entrada_status_utc` | time | Sim | Início comprovado em UTC; NULL para inferência. |
 | `saida_status_utc` | time | Sim | Saída em UTC, se observada. |
 | `corte_utc` | time | Não | Mesmo fechamento de corte_local em UTC. |
-## pendencias_projeto
+## Artefato privado pendencias_projeto.json — não é tabela BigQuery
 
 | Campo | Tipo | Aceita NULL | Descrição |
 |---|---|---|---|
@@ -58,4 +77,4 @@ Regras, exemplos e roteiro: [CONSUMO_DIRETO.md](CONSUMO_DIRETO.md). Campos inter
 | `corte_local` | localtime | Não | Meia-noite que fecha o período, em São Paulo. |
 | `versao_regras` | text | Não | Versão semântica e assinatura da configuração/catálogo. |
 | `item_sk` | text | Não | Chave substituta estável do projeto. |
-Tipos: id=int64, int=inteiro, text=texto, num=decimal, bool=booleano, localtime=data/hora local sem fuso, time=instante com fuso. JSON não é necessário nas duas tabelas de consumo. A tabela principal tem 33 campos; os dez do exemplo aparecem primeiro. As demais colunas suportam integração, filtros e qualidade.
+Tipos lógicos: id=int64, int=inteiro, text=texto, num=número finito não negativo, bool=booleano, localtime=data/hora local sem fuso, time=instante com fuso. O artefato de pendências contém informações operacionais para revisão e acesso restrito. Projetos excluídos não entram em sla_orcamento.

@@ -1,36 +1,6 @@
-from sqlalchemy import (
-    JSON,
-    BigInteger,
-    Boolean,
-    Column,
-    Date,
-    DateTime,
-    Float,
-    ForeignKeyConstraint,
-    Index,
-    Integer,
-    MetaData,
-    Table,
-    Text,
-    UniqueConstraint,
-)
-from sqlalchemy.dialects.postgresql import JSONB
+"""Portable private-state collections; never creates database tables."""
 
-from .keys import DIMENSION_IDENTITIES, SURROGATE_COLUMNS
-
-# Shared metadata drives PostgreSQL DDL, BigQuery DDL and migration keys.
-JSON_TYPE = JSON().with_variant(JSONB(), "postgresql")
-TYPES = {
-    "text": Text,
-    "id": BigInteger,
-    "int": Integer,
-    "bool": Boolean,
-    "time": DateTime(timezone=True),
-    "localtime": DateTime(timezone=False),
-    "date": Date,
-    "num": Float,
-    "json": JSON_TYPE,
-}
+from .keys import SURROGATE_COLUMNS
 
 DEFINITIONS = {
     "quarentena_projeto": (
@@ -194,18 +164,6 @@ def foreign_keys():
     return relationships
 
 
-def surrogate_foreign_keys():
-    result = []
-    for child, source, parent, target in foreign_keys():
-        child_sk = next(
-            (k for k, (src, _) in SURROGATE_COLUMNS.get(child, {}).items() if src == source), None
-        )
-        identity = DIMENSION_IDENTITIES.get(parent)
-        if child_sk and identity and target == identity[0]:
-            result.append((child, source, child_sk, parent, target, identity[1]))
-    return result
-
-
 REPLACE_TABLES = {
     "quarentena_projeto",
     "gold_projeto_status",
@@ -215,67 +173,3 @@ REPLACE_TABLES = {
     "fct_item_sla_summary",
     "data_quality_issue",
 }
-
-
-def define_tables(schema="sladb"):
-    from .contracts import required_columns
-
-    metadata = MetaData(schema=schema)
-    tables = {}
-    for name, (keys, fields) in DEFINITIONS.items():
-        primary = keys.split(",")
-        columns = [
-            Column(
-                field.split(":")[0],
-                TYPES[field.split(":")[1]],
-                primary_key=field.split(":")[0] in primary,
-                nullable=(
-                    field.split(":")[0] not in required_columns(name)
-                    and field.split(":")[0] != DIMENSION_IDENTITIES.get(name, (None, None))[1]
-                ),
-            )
-            for field in fields.split()
-        ]
-        tables[name] = Table(name, metadata, *columns)
-    tables["gold_projeto_status"].append_constraint(
-        UniqueConstraint("board_id", "item_id", "ordem_etapa", name="uq_gold_projeto_ordem")
-    )
-    import hashlib
-
-    for name, (source, surrogate) in DIMENSION_IDENTITIES.items():
-        tables[name].append_constraint(UniqueConstraint(surrogate, name=f"uq_{name}_surrogate"))
-        tables[name].append_constraint(
-            UniqueConstraint(source, surrogate, name=f"uq_{name}_identity")
-        )
-
-    for child, column, parent, target in foreign_keys():
-        digest = hashlib.sha256(f"{child}.{column}.{parent}".encode()).hexdigest()[:8]
-        tables[child].append_constraint(
-            ForeignKeyConstraint(
-                [column],
-                [f"{schema}.{parent}.{target}"],
-                name=f"fk_{child[:22]}_{digest}",
-                deferrable=True,
-                initially="DEFERRED",
-            )
-        )
-    for child, source, child_sk, parent, target, parent_sk in surrogate_foreign_keys():
-        digest = hashlib.sha256(f"{child}.{child_sk}.{parent}".encode()).hexdigest()[:8]
-        tables[child].append_constraint(
-            ForeignKeyConstraint(
-                [source, child_sk],
-                [f"{schema}.{parent}.{target}", f"{schema}.{parent}.{parent_sk}"],
-                name=f"fk_sk_{child[:19]}_{digest}",
-                deferrable=True,
-                initially="DEFERRED",
-            )
-        )
-    for name, columns in {
-        "gold_projeto_status": ["board_id", "item_id", "ordem_etapa"],
-        "bronze_monday_activity_log_raw": ["board_id", "item_id", "event_at_utc"],
-        "bronze_monday_item_snapshot_raw": ["board_id", "snapshot_at"],
-        "fct_item_status_interval": ["board_id", "item_id", "status_start_utc"],
-        "fct_item_status_daily": ["board_id", "dt"],
-    }.items():
-        Index(f"ix_{name}", *(tables[name].c[c] for c in columns))
-    return metadata, tables

@@ -52,3 +52,13 @@ def test_environment_only_container_configuration(tmp_path, monkeypatch):
     assert settings.pg_host == "database.internal"
     assert settings.pg_port == 5432
     assert settings.pg_db == "dados_globo"
+
+
+def test_gcp_only_default_and_no_implicit_postgres_fallback():
+    from sls_orcamento_pdd.config import Settings
+
+    assert Settings(_env_file=None).target_db == "bigquery"
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, target_db="postgres")
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, final_status_labels=[])

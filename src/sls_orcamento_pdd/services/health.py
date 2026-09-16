@@ -1,11 +1,7 @@
 """Health follows the durable publication, retaining actual failure signals."""
 
-import json
-
-from ..utils.time import parse_timestamp, utcnow
+from ..utils.time import utcnow
 from .state import watermark
-
-BUSY = "Já existe uma execução ativa para este board"
 
 
 def check_health(store, settings, *, now=None):
@@ -31,18 +27,9 @@ def check_health(store, settings, *, now=None):
         for r in data["etl_run"]
     ):
         raise ValueError("Tentativa diária falhou ou não terminou; confira logs e reserva")
-    warnings = []
-    path = settings.runtime_dir / f"status_{settings.monday_board_id}.json"
-    if path.exists():
-        runtime = json.loads(path.read_text(encoding="utf-8"))
-        if runtime["status"] != "success" and parse_timestamp(runtime["end_at"]) > last["end_at"]:
-            if runtime.get("error") == BUSY and not runtime.get("scheduled_date"):
-                warnings.append("concurrent_attempt_rejected")
-            else:
-                raise ValueError("Última tentativa registrada falhou; confira logs")
     return {
         "age_hours": round(age, 2),
         "source": "durable_publication",
-        "warnings": warnings,
+        "warnings": [],
         "gold_rows": len(data["gold_projeto_status"]),
     }

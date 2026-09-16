@@ -1,4 +1,5 @@
 .env
+.env.*
 .venv
 .git
 runtime
@@ -7,3 +8,12 @@ secrets
 __pycache__
 .pytest_cache
 *.dump
+*.backup
+*.sqlite3
+*.pem
+*.key
+gha-creds-*.json
+*.tfstate*
+*.tfvars
+.terraform
+service-account*.json
