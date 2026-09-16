@@ -16,7 +16,7 @@ provider "google" {
 
 resource "google_storage_bucket" "terraform_state" {
   name          = "gglobo-viu-terraform-state-prd"
-  project = "gglobo-viu-dados-hdg-prd"
+  project       = "gglobo-viu-dados-hdg-prd"
   location      = "us-central1"
   storage_class = "STANDARD"
 
