@@ -31,7 +31,20 @@ Os testes GCP usam doubles compatíveis com as interfaces dos SDKs, não os serv
 
 ## Pendente de homologação
 
-Revisar plan autenticado e provisionar APIs/IAM/bucket/segredo; migrar o par checkpoint/PostgreSQL real; executar load real incluindo caso vazio em ambiente isolado; comparar IDs, quantidades e horas; testar recuperação em ambiente isolado; validar consumo Power BI; ligar Scheduler e observar a primeira execução diária. Não criar dados fictícios no dataset de produção.
+Revisar plan autenticado e provisionar APIs/IAM/bucket/segredo; inicializar uma base nova via init-db/backfill (decisão atual: não importar PostgreSQL/checkpoint anteriores); executar load real incluindo caso vazio em ambiente isolado; comparar IDs, quantidades e horas; testar recuperação em ambiente isolado; validar consumo Power BI; ligar Scheduler e observar a primeira execução diária. Não criar dados fictícios no dataset de produção.
+
+## Revalidação do roteiro de instalação nova — 16/09/2026
+
+- Revisados os **93 arquivos versionados existentes**: código, testes, configuração, infraestrutura, workflows, contratos gerados, SQL, DAX e documentação. Acrescentado `tests/test_deployment.py`. DAX/consultas foram inspecionados, não executados no Power BI/BigQuery reais. Dependências instaladas e arquivos privados não foram tratados como código a limpar.
+- Rodada final com `RUN_MIGRATION_TESTS=1 .venv/Scripts/python.exe -m pytest -q`: **127 passaram, nenhum ignorado**, em 31,00 s. PostgreSQL 16 de teste isolado em loopback 55439; container temporário removido ao terminar. Banco existente na porta 55432, VPS e runtime reais não foram alterados. Sem a opção de integração: 124 passaram, 3 ignorados.
+- Ruff e `pip check`: aprovados. O Python global não possui pytest/ruff; a validação usou o ambiente virtual do projeto.
+- `docker build -t sla-orcamento:gcp-reviewed .`: aprovado. Calendário 2026 executado, UID 10001 e ausência de `/app/.env` verificados; `pip check` no container aprovado.
+- Terraform fmt e validate aprovados com 1.9.8/provider 6.50.0. O init tentou acessar registry.terraform.io e teve timeout; validate foi repetido com TF_DATA_DIR apontando ao cache privado já existente. Não houve plan/apply autenticados. Sintaxe dos scripts Bash aprovada em container; o mount do Google Drive não era acessível ao Docker, então a verificação usou os scripts por stdin, sem executá-los.
+- Links Markdown locais, `git diff --check` e regeneração de contratos/DDL conferidos; nenhum desvio dos arquivos gerados.
+- Corrigidas exclusões de `.tfplan`/`.tfvars.json` dos contextos de build e `.tfvars.json` do Git, removidos dois ramos CLI legados inacessíveis e ocultado valor rejeitado na conversão ISO8601. Testes novos cobrem esses arquivos de deploy, erro de timestamp e bloqueio de daily antes de backfill.
+- Guias, prompts e README atualizados para destino vazio, primeira coleta `init-db`/`backfill`, validação manual e agenda confirmada às 06h. Nenhuma regra de cálculo, contrato ou lógica de publicação alterada.
+- `.env` local conferido apenas por indicadores, sem imprimir valores: permanece legado, sem bucket configurado e sem corresponder à configuração BQ confirmada. Foi preservado. Deploy usa gcp.env.yaml e Secret Manager; execução local opcional requer `.env.gcp` preparado separadamente.
+- Referência de execução com substituições de argumentos conferida na documentação oficial do Cloud Run. Nenhum comando de implantação/coleta foi executado contra o GCP ou Monday nesta revisão.
 
 Nenhum recurso GCP, segredo, tabela real ou agendamento foi criado/alterado nesta sessão. A publicação no GitHub não equivale ao deploy no GCP. `.env`, PostgreSQL e checkpoint existentes foram preservados.
 

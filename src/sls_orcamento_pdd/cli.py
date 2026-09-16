@@ -83,8 +83,6 @@ def main():
                 data = load_checkpoint(Path(args.checkpoint_file), args.generation)
                 emit("gcp_migration_verified", **store.import_state(data))
         elif args.command in {
-            "migrate-single-table",
-            "migrate-consumption",
             "export-review",
             "import-review",
             "backup-state",

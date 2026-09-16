@@ -21,5 +21,6 @@ gha-creds-*.json
 *.tfstate.*
 *.tfplan
 *.tfvars
+*.tfvars.json
 .terraform/
 service-account*.json

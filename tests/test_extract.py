@@ -82,3 +82,9 @@ def test_bad_status_event_cannot_be_silently_dropped(settings):
     log["created_at"] = ""
     with pytest.raises(ValueError):
         parse_activity(log, settings, at())
+
+
+def test_invalid_timestamp_does_not_expose_rejected_value():
+    with pytest.raises(ValueError, match="valor omitido") as error:
+        parse_timestamp("private-invalid-timestamp")
+    assert "private-invalid-timestamp" not in str(error.value)

@@ -156,6 +156,18 @@ def test_pipeline_one_table_incremental_daily_and_ephemeral_runtime(cloud, board
     assert len(new().read("bronze_monday_activity_log_raw")) == 1
 
 
+def test_new_installation_requires_backfill_before_daily(cloud, board):
+    cfg, bq, new = cloud
+    client = FakeMonday(board)
+    with pytest.raises(ValueError, match="backfill"):
+        run(cfg, client=client, store=new(), at=at(), scheduled_for=at())
+    assert client.pages_items == client.pages_logs == 0
+    assert not bq.jobs
+    assert new().read("etl_run") == []
+    # Reusing the initialized, still-empty state is the normal bootstrap path.
+    assert run(cfg, "backfill", client=client, store=new(), at=at())["status"] == "success"
+
+
 def test_daily_failure_does_not_advance_watermark_or_repeat(cloud, board):
     cfg, _, new = cloud
     run(cfg, "backfill", client=FakeMonday(board), store=new(), at=at())

@@ -4,6 +4,8 @@ Este guia acompanha um pipeline que já está escrito. Você não precisa aprend
 
 O código pronto no GitHub não significa que os recursos existem no Google. Projeto e dataset foram confirmados; bucket, identidades, segredo, Job e agenda ainda precisam ser verificados/provisionados pela equipe autorizada.
 
+Decisão atual: começar uma base nova no GCP, sem importar o banco/checkpoint anteriores. O responsável está aprendendo e será guiado em cada etapa. A agenda às 06h São Paulo está confirmada. Não apagar dados antigos; começar novo significa coletar o histórico que o Monday ainda disponibiliza, sem garantir recuperar eventos que já não estejam na fonte.
+
 ## 1. Vocabulário com exemplos deste projeto
 
 | Nome | Explicação simples | Neste projeto |
@@ -94,11 +96,11 @@ Execute manualmente o workflow de deploy. Ele testa, constrói a imagem, envia a
 
 Resultado esperado: Job configurado com a imagem do commit escolhido, sem Scheduler ativo.
 
-### Etapa 6 — migrar histórico
+### Etapa 6 — primeira carga da base nova
 
-Use MIGRACAO_HISTORICO.md com apoio de quem conhece a instalação anterior. Não começar do zero se há histórico guardado. Confirme backup, geração do recibo e reconciliação. Nunca subir SQLite ou dump para o repositório/imagem.
+Seguiremos a decisão de não importar a instalação anterior. Confira destino vazio e execute `init-db` e depois `backfill` no Job, um por vez, conforme DEPLOY_GCP.md. O primeiro prepara o controle no bucket; o segundo busca o histórico disponível no Monday, calcula os resultados e cria a tabela final. Não criar tabela manualmente nem executar `daily` antes disso. Uma substituição de argumentos na execução não muda o comando diário salvo no Job.
 
-Resultado esperado: estado GCS reconciliado e uma tabela BQ, com IDs preservados.
+Resultado esperado: estado GCS reconciliado e uma tabela BQ, com IDs da fonte preservados. Eventos indisponíveis não são inventados: tempos sem início comprovado continuam NULL. Havendo estado/tabela já existentes ou falha na execução, pare e investigue, sem apagar para tentar de novo. MIGRACAO_HISTORICO.md é apenas uma alternativa se a decisão mudar antes da inicialização.
 
 ### Etapa 7 — executar manualmente e conferir
 

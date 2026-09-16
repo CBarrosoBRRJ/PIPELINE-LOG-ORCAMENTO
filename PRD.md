@@ -35,4 +35,4 @@ Uma tentativa automática diária às **06:00 America/Sao_Paulo**, via Cloud Sch
 - [Operação, migração e recuperação](OPERATIONS.md).
 - [Evidências de validação GCP](docs/VALIDACAO_GCP.md).
 
-Código GCP implementado; implantação corporativa ainda não executada. IDs/SKs preservados, pendências fora do BQ, horas úteis adicionadas ao contrato. Consulte [DEPLOY_GCP.md](docs/DEPLOY_GCP.md). A VPS permanece apenas como fonte do par PostgreSQL/checkpoint até migração validada. Nenhum recurso GCP foi provisionado nesta alteração.
+Código GCP implementado; implantação corporativa ainda não executada. IDs/SKs preservados, pendências fora do BQ, horas úteis adicionadas ao contrato. Consulte [DEPLOY_GCP.md](docs/DEPLOY_GCP.md). Decisão posterior confirmada em 16/09/2026: iniciar uma base nova via `init-db` e `backfill`, sem importar PostgreSQL/checkpoint anteriores, recuperando somente o histórico disponível na fonte. Isso não autoriza excluir dados legados nem garante histórico completo do Monday. Agenda das 06h confirmada pelo usuário. Nenhum recurso GCP foi provisionado nesta alteração.

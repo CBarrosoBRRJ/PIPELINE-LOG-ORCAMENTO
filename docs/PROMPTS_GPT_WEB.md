@@ -14,15 +14,19 @@ Projeto GCP confirmado: gglobo-viu-dados-hdg-prd
 Dataset existente: viu_agenciamento, localização US
 Única tabela de saída: sla_orcamento
 Job proposto: pipeline-orcamento, us-central1
-Agenda proposta: diariamente às 06h, America/Sao_Paulo
+Agenda confirmada: diariamente às 06h, America/Sao_Paulo
 
 O código extrai Monday, faz todos os joins/tratamentos em Python e publica uma linha por passagem do projeto em um status. Horas úteis: seg-sex 10–13h e 14–19h, feriados BR PUBLIC e extras configuráveis. Não existe meta de SLA. Início não comprovado permanece NULL.
 
-O BigQuery recebe uma única tabela por carga atômica, não tabelas por dia. Cloud Storage guarda histórico, checkpoint, pendências, calendário, journal e trava. A tabela mantém passagens históricas, não snapshots diários. Precisamos preservar o histórico da instalação anterior. PostgreSQL/SQLite só são origem de migração de leitura; não há escritor PostgreSQL nesta versão.
+O BigQuery recebe uma única tabela por carga atômica, não tabelas por dia. Cloud Storage guarda histórico, checkpoint, pendências, calendário, journal e trava. A tabela mantém passagens históricas, não snapshots diários. Decidi começar uma instalação nova, sem importar PostgreSQL/SQLite anteriores. Use init-db e backfill antes de daily, conforme o guia. Buscaremos o histórico ainda disponível no Monday, sem garantir recuperar eventos antigos ausentes e sem inventar datas/durações. Não executar export-bq/import-state neste roteiro.
 
 O deploy automático antigo da VPS foi informado como desligado. Isso não autoriza apagar VPS, banco, backups ou checkpoint. Projeto/dataset existem, mas bucket, service accounts, segredo, Job e Scheduler ainda não estão comprovados como criados. Não confunda infraestrutura declarada em arquivos com implantação real.
 
-Leia README.md, docs/APRENDER_GCP.md, docs/DEPLOY_GCP.md, docs/MIGRACAO_HISTORICO.md, OPERATIONS.md, infra/main.tf, deploy/deploy.sh, deploy/schedule.sh e os workflows. Se não conseguir acessar o repositório privado, diga exatamente quais arquivos preciso anexar. Não invente o conteúdo deles.
+Eu sou o responsável pela implantação, mas estou aprendendo. Ser responsável não prova que minha conta já possui todas as permissões; ajude a conferi-las sem pedir Owner por conveniência.
+
+O .env local ainda é legado e deve ser preservado, nunca enviado ao chat/GitHub. Ele não entra na imagem. O Cloud Run usa deploy/gcp.env.yaml + nome do bucket injetado + token no Secret Manager. Não me peça para preencher o .env para publicar pelo GitHub; configuração local .env.gcp só é necessária se eu escolher executar no computador.
+
+Leia README.md, docs/APRENDER_GCP.md, docs/DEPLOY_GCP.md, docs/VALIDACAO_GCP.md, OPERATIONS.md, infra/main.tf, deploy/gcp.env.yaml, deploy/deploy.sh, deploy/schedule.sh e os workflows. Se não conseguir acessar o repositório, diga exatamente quais arquivos preciso anexar. Não invente o conteúdo deles. Testes locais/CI não são prova de acesso real ao Monday/GCP; a homologação em produção ainda está pendente.
 
 Método obrigatório:
 1. Trabalhe em uma etapa por vez e espere minha confirmação/evidência antes de avançar.
@@ -69,16 +73,16 @@ Depois de eu confirmar o apply e seus outputs, ensine a conferir as três servic
 Ensine a configurar o ambiente production e as variables GCS_BUCKET, GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_DEPLOY_SERVICE_ACCOUNT e MONDAY_SECRET_VERSION. Explique Workload Identity Federation, branch main e a diferença entre CI (testes) e deploy. Leia o workflow real e as restrições do provider. Ajude a configurar proteção/revisão de main e production conforme disponibilidade da conta e regras corporativas. Execute comigo o workflow manual e interprete cada etapa: teste, build, autenticação, push da imagem, configuração do Job. Confira imagem/commit, runtime service account, envs não secretos, segredo por versão, uma tarefa, retries zero e timeout. Não executar carga nem ligar Scheduler ainda.
 ```
 
-## Etapa 6 — preservar e migrar o histórico
+## Etapa 6 — inicializar e carregar a base nova
 
 ```text
-Vamos seguir docs/MIGRACAO_HISTORICO.md. Primeiro confirme se existe histórico anterior, quem tem a cópia consistente do PostgreSQL/SQLite, backup testado e geração confirmada do recibo. Não me peça para anexar esses dados no chat. Explique export-bq com o extra migration versus import-state offline, incluindo a diferença de reconciliação possível em cada caminho. Confirme o destino e bloqueie sobreposição com dados existentes. Não substitua histórico antigo por backfill da API. Oriente a importação na máquina autorizada, preserve IDs e guarde evidências de reconciliação sem dados sensíveis. Não apagar a origem depois dessa etapa.
+Decidi começar uma instalação nova, sem importar o banco/checkpoint antigos. Siga a etapa 4 de docs/DEPLOY_GCP.md: confira destino vazio e configuração do Job, depois oriente init-db e backfill com substituição de argumentos no Cloud Run, um comando por vez, aguardando conclusão com --wait. Explique a permissão para executar com substituições. Não criar sla_orcamento manualmente, não iniciar daily antes do backfill e não executar export-bq/import-state. O histórico carregado será o ainda disponível no Monday; início/duração sem evidência permanece NULL. Se já existir estado/tabela, ou a carga falhar, pare e diagnostique sem apagar nem liberar trava às cegas. Não exclua nada da VPS. Guarde evidências sem dados sensíveis e pare após conferir a primeira publicação.
 ```
 
 ## Etapa 7 — validar uma execução manual
 
 ```text
-Com a migração confirmada, ensine a executar validate-gold, daily e health no Cloud Run Job conforme docs/DEPLOY_GCP.md. Explique substituição de argumentos e como acompanhar a execução até terminar. Confira somente sla_orcamento como tabela criada pelo pipeline, chaves únicas, retorno de status, início desconhecido NULL, horas úteis com almoço/feriados e corte D+1. Use consultas de sql/bq/002_validar_consumo.sql. Não criar dados fictícios na produção; cenários artificiais devem usar ambiente isolado. Explique por que repetir daily no mesmo dia pode retornar skipped e não apague a reserva para contornar isso. Pare quando tivermos evidências de sucesso ou um diagnóstico claro da falha.
+Com a primeira carga confirmada, ensine a executar validate, validate-gold, daily e health no Cloud Run Job conforme docs/DEPLOY_GCP.md. Explique substituição de argumentos e como acompanhar a execução até terminar. Confira somente sla_orcamento como tabela criada pelo pipeline, chaves únicas, retorno de status, início desconhecido NULL, horas úteis com almoço/feriados e corte D+1. Use consultas de sql/bq/002_validar_consumo.sql. Não criar dados fictícios na produção; cenários artificiais devem usar ambiente isolado. Explique por que repetir daily no mesmo dia pode retornar skipped e não apague a reserva para contornar isso. Pare quando tivermos evidências de sucesso ou um diagnóstico claro da falha.
 ```
 
 ## Etapa 8 — agenda, alertas e custos

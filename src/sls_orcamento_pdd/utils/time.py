@@ -21,7 +21,11 @@ def parse_timestamp(value) -> datetime:
         try:
             number = Decimal(raw)
         except InvalidOperation:
-            result = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            try:
+                result = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except ValueError:
+                # The builtin error includes the rejected input, which may be private.
+                raise ValueError("Timestamp ISO8601 inválido; valor omitido") from None
         else:
             if not number.is_finite():
                 raise ValueError("Timestamp não finito")

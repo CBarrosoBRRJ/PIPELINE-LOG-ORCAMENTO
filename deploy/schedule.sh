@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Only after migration, reconciliation and a successful manual daily execution.
+# Only after initial load, reconciliation and a successful manual daily execution.
 set -euo pipefail
 PROJECT_ID="gglobo-viu-dados-hdg-prd"
 REGION="${REGION:-us-central1}"

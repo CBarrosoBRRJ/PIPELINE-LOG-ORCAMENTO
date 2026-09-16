@@ -4,7 +4,15 @@ Destino confirmado: `gglobo-viu-dados-hdg-prd.viu_agenciamento.sla_orcamento`, l
 Cloud Run Job e bucket propostos em `us-central1`. O dataset já existe; o código não cria datasets.
 Tudo neste guia é procedimento de implantação; a existência dos arquivos no Git não significa que os recursos já foram implantados.
 
+Decisão confirmada em 16/09/2026: **instalação nova, sem importar PostgreSQL/SQLite anteriores**. A primeira carga busca o histórico ainda disponível no Monday. Não é garantia de recuperar todo o passado e não autoriza excluir dados antigos. Agenda confirmada: 06h America/Sao_Paulo.
+
 Se estiver começando, leia primeiro [Aprender GCP](APRENDER_GCP.md). Para acompanhamento com um tutor, use os [prompts por etapa](PROMPTS_GPT_WEB.md).
+
+### Configuração local não é a configuração do Cloud Run
+
+O `.env` local pode continuar com as configurações da VPS. Ele é privado, ignorado no Git e excluído da imagem; **não será enviado nem usado pelo Cloud Run**. No GCP, `deploy/gcp.env.yaml` fornece os valores não secretos, o deploy injeta o nome do bucket e o token vem do Secret Manager. Não existe chave/senha BigQuery a colocar no código.
+
+Se quiser executar localmente, preserve o `.env` antigo, crie um arquivo privado `.env.gcp` a partir de `.env.example`, preencha o bucket após criá-lo, configure autenticação Google e use `sla-pipeline --env-file .env.gcp COMANDO`. Nunca execute coleta local e Job ao mesmo tempo. Não é necessário preparar esse arquivo para implantar pelo GitHub.
 
 ## O que solicitar à equipe GCP
 
@@ -83,7 +91,26 @@ bash deploy/deploy.sh
 
 Cloud Build manual precisa de uma identidade de build com acesso ao repositório Artifact Registry e logs conforme política corporativa; o workflow GitHub já usa a identidade deploy provisionada e dispensa Cloud Build. Deploy não cria agendamento automaticamente.
 
-## 4. Migrar o histórico existente antes da agenda
+## 4. Inicializar a instalação nova (caminho escolhido)
+
+Somente depois de provisionar os recursos, cadastrar o segredo e publicar o Job, confira o destino: `gglobo-viu-dados-hdg-prd.viu_agenciamento.sla_orcamento` e o bucket/prefixo configurados. Não crie a tabela manualmente: a primeira publicação cria o schema explícito. Se já houver tabela ou estado nesse destino, pare e investigue; não apague nem sobrescreva para "começar do zero".
+
+No **Cloud Shell (Bash)**, execute **um comando por vez** e confira o sucesso antes do próximo:
+
+```bash
+gcloud run jobs execute pipeline-orcamento --project gglobo-viu-dados-hdg-prd --region us-central1 --args init-db --wait
+gcloud run jobs execute pipeline-orcamento --project gglobo-viu-dados-hdg-prd --region us-central1 --args backfill --wait
+```
+
+`init-db` prepara o controle vazio no GCS, não uma tabela vazia no BQ. `backfill` consulta cadastro e histórico disponível no Monday, processa as regras em Python, grava a memória técnica no GCS e publica a tabela. Essas substituições de argumentos valem só para a execução: o Job continua configurado com `daily`. Executar com substituições requer permissões além de apenas Run Invoker; conferir o papel do operador conforme a [documentação oficial](https://docs.cloud.google.com/run/docs/execute/jobs).
+
+Não execute o `daily` nem ative Scheduler antes de concluir a primeira carga. Se houver falha, examine execução/logs e siga OPERATIONS.md; não remova travas, reservas ou estado às cegas. A API pode não oferecer eventos antigos: início e duração sem evidência permanecem NULL. Uma base nova não significa descartar os eventos históricos que o Monday ainda oferece.
+
+Após o backfill, siga a etapa 5. O aceite depende de dados reais: acesso ao quadro/coluna, permissões, tempo/memória da carga e reconciliação da tabela. Não declarar produção pronta só porque o build passou.
+
+### Alternativa: importar instalação anterior (fora do roteiro escolhido)
+
+Use esta alternativa somente se houver uma decisão posterior explícita de aproveitar o histórico antigo, **antes de inicializar a base nova**. Não combine os dois caminhos sobre um destino já populado.
 
 Mantenha o executor antigo desligado. Preserve PostgreSQL + checkpoint correspondente; gere backup e teste restore isolado conforme [MIGRACAO_HISTORICO.md](MIGRACAO_HISTORICO.md). O PostgreSQL sozinho não contém Bronze. Não use backfill como substituto do checkpoint: a API pode não ter mais o histórico antigo.
 
@@ -106,16 +133,17 @@ sla-pipeline --env-file .env.gcp validate-gold
 
 Não adivinhar a geração escolhendo o slot pending. O comando lê exatamente a geração informada e verifica checksum. Não incluir o checkpoint na imagem ou no Git.
 
-Somente para instalação realmente sem histórico anterior: `init-db` e `backfill` manuais. `init-db` prepara estado vazio no GCS; a tabela é criada na primeira publicação. Uma tabela BQ existente sem recibo GCS bloqueia para impedir sobrescrita inadvertida.
+Uma tabela BQ existente sem recibo GCS bloqueia para impedir sobrescrita inadvertida.
 
 ## 5. Executar e conferir no Cloud Run
 
 No Console: **Cloud Run → Jobs → pipeline-orcamento → Execute com substituições**, argumento `validate-gold`; confira a execução até o fim. Pela CLI:
 
 ```bash
-gcloud run jobs execute pipeline-orcamento --region us-central1 --args validate-gold --wait
-gcloud run jobs execute pipeline-orcamento --region us-central1 --args daily --wait
-gcloud run jobs execute pipeline-orcamento --region us-central1 --args health --wait
+gcloud run jobs execute pipeline-orcamento --project gglobo-viu-dados-hdg-prd --region us-central1 --args validate --wait
+gcloud run jobs execute pipeline-orcamento --project gglobo-viu-dados-hdg-prd --region us-central1 --args validate-gold --wait
+gcloud run jobs execute pipeline-orcamento --project gglobo-viu-dados-hdg-prd --region us-central1 --args daily --wait
+gcloud run jobs execute pipeline-orcamento --project gglobo-viu-dados-hdg-prd --region us-central1 --args health --wait
 ```
 
 `daily` usa reserva por data local; uma segunda execução na mesma data será ignorada. O comando `replay` reaplica regras/calendário sobre histórico já guardado, sem Monday e sem avançar watermark. Se a importação tiver uma reserva da data corrente, o daily não repete coleta nesse dia. A primeira carga após migração pode estar atrasada em relação a hoje; nesse caso health acusa atraso até a próxima coleta válida.
