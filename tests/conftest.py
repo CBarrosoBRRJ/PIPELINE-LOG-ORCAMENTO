@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from sls_orcamento_pdd.config import Settings
-from sls_orcamento_pdd.services.extract import discover, parse_activity, snapshot
+from sls_orcamento_ppd.config import Settings
+from sls_orcamento_ppd.services.extract import discover, parse_activity, snapshot
 
 
 @pytest.fixture

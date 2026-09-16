@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from sls_orcamento_pdd.db.bq import table_ddl
+from sls_orcamento_ppd.db.bq import table_ddl
 
 
 def main():

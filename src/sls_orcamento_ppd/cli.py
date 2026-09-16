@@ -7,7 +7,7 @@ from .utils.logging import emit
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SLA Monday — sls_orcamento_pdd")
+    parser = argparse.ArgumentParser(description="SLA Monday — sls_orcamento_ppd")
     parser.add_argument("--env-file", default=".env")
     parser.add_argument(
         "command",

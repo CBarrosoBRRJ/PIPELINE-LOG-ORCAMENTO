@@ -4,11 +4,11 @@ import json
 import pytest
 from conftest import at, raw_event
 
-from sls_orcamento_pdd.models.contracts import validate_table
-from sls_orcamento_pdd.rules.identities import Catalog, source_key
-from sls_orcamento_pdd.services.extract import discover, parse_activity
-from sls_orcamento_pdd.services.gold import build_gold, validate_gold
-from sls_orcamento_pdd.services.transform import transform
+from sls_orcamento_ppd.models.contracts import validate_table
+from sls_orcamento_ppd.rules.identities import Catalog, source_key
+from sls_orcamento_ppd.services.extract import discover, parse_activity
+from sls_orcamento_ppd.services.gold import build_gold, validate_gold
+from sls_orcamento_ppd.services.transform import transform
 
 
 def build(settings, board, sample, catalog=None, persons=None):

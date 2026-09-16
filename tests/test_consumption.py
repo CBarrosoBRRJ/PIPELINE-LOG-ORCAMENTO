@@ -2,7 +2,7 @@ import copy
 
 from test_gold import build
 
-from sls_orcamento_pdd.models.consumption import (
+from sls_orcamento_ppd.models.consumption import (
     GOLD,
     PENDING,
     pending_projects,

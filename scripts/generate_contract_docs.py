@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from sls_orcamento_pdd.models.bq_consumption import FIELDS, REQUIRED
-from sls_orcamento_pdd.models.contracts import CONTRACT_VERSION, required_columns
-from sls_orcamento_pdd.models.keys import DIMENSION_IDENTITIES
-from sls_orcamento_pdd.models.schemas import DEFINITIONS, foreign_keys
+from sls_orcamento_ppd.models.bq_consumption import FIELDS, REQUIRED
+from sls_orcamento_ppd.models.contracts import CONTRACT_VERSION, required_columns
+from sls_orcamento_ppd.models.keys import DIMENSION_IDENTITIES
+from sls_orcamento_ppd.models.schemas import DEFINITIONS, foreign_keys
 
 
 def main():

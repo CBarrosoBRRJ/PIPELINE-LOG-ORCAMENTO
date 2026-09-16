@@ -1,8 +1,8 @@
 import pytest
 from conftest import at, raw_event
 
-from sls_orcamento_pdd.services.extract import discover, extract_activities, parse_activity
-from sls_orcamento_pdd.utils.time import event_timestamp, parse_timestamp
+from sls_orcamento_ppd.services.extract import discover, extract_activities, parse_activity
+from sls_orcamento_ppd.utils.time import event_timestamp, parse_timestamp
 
 
 @pytest.mark.parametrize(

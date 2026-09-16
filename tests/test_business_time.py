@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from sls_orcamento_pdd.rules.business_time import BusinessCalendar
+from sls_orcamento_ppd.rules.business_time import BusinessCalendar
 
 ZONE = ZoneInfo("America/Sao_Paulo")
 

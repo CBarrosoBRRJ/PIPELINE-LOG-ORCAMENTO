@@ -1,7 +1,7 @@
 import gzip
 from datetime import UTC, datetime, timedelta, timezone
 
-from sls_orcamento_pdd.db.checkpoint import decode, encode, fingerprint
+from sls_orcamento_ppd.db.checkpoint import decode, encode, fingerprint
 
 
 def test_fingerprint_is_content_based_across_timezones_row_order_and_gzip_headers():

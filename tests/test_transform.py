@@ -2,9 +2,9 @@ from datetime import timedelta
 
 from conftest import at, raw_event, raw_item
 
-from sls_orcamento_pdd.services.extract import discover, parse_activity, snapshot
-from sls_orcamento_pdd.services.transform import transform
-from sls_orcamento_pdd.utils.time import parse_timestamp
+from sls_orcamento_ppd.services.extract import discover, parse_activity, snapshot
+from sls_orcamento_ppd.services.transform import transform
+from sls_orcamento_ppd.utils.time import parse_timestamp
 
 
 def test_intervals_reconcile_and_local_midnight(settings, sample):

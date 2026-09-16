@@ -1,4 +1,4 @@
-# Pipeline de permanência por status — 4.0.0
+# Pipeline de permanência por status — PPD — 4.0.0
 
 Monday → joins, regras e horas úteis em Python → **BigQuery `viu_agenciamento.sla_orcamento`**.
 
@@ -18,3 +18,5 @@ Instalação local opcional: `python -m pip install -e '.[dev]'`. Prepare `.env.
 Importação legada é alternativa opcional, fora desse roteiro: exige extra `.[migration]` e par consistente PostgreSQL/checkpoint. Consulte [migração do histórico](docs/MIGRACAO_HISTORICO.md) apenas se a decisão mudar antes de inicializar o destino; não combinar importação com uma base nova já populada.
 
 Implementação e testes locais não equivalem a implantação: GCP real depende de provisionar bucket/IAM/segredo e validar o primeiro job. Não há escritor PostgreSQL, cron interno, Compose ou Databricks. O importador de origem é somente leitura, isolado em migration/. Veja [limpeza e evidências](docs/VALIDACAO_GCP.md).
+
+O projeto é da área **PPD**; pacote Python `sls_orcamento_ppd` (distribuição `sls-orcamento-ppd`). Após atualizar uma instalação local existente, execute novamente `python -m pip install -e ".[dev]"`. Os namespaces históricos com `pdd` usados em IDs/SKs, identificação do pipeline e leitura de migração são preservados por compatibilidade dos dados; não representam a área atual.

@@ -4,10 +4,10 @@ from datetime import timedelta
 import pytest
 from conftest import at, raw_event
 
-from sls_orcamento_pdd.rules.cutoff import closed_day_cut
-from sls_orcamento_pdd.services.extract import discover, parse_activity
-from sls_orcamento_pdd.services.gold import build_gold, validate_gold
-from sls_orcamento_pdd.services.transform import transform
+from sls_orcamento_ppd.rules.cutoff import closed_day_cut
+from sls_orcamento_ppd.services.extract import discover, parse_activity
+from sls_orcamento_ppd.services.gold import build_gold, validate_gold
+from sls_orcamento_ppd.services.transform import transform
 
 
 def test_local_midnight_is_exclusive_and_capture_is_not_backdated(settings, board, sample):

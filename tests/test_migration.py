@@ -12,11 +12,11 @@ import pytest
 from conftest import FakeMonday, at
 from test_gcp_store import cloud
 
-from sls_orcamento_pdd.db.checkpoint import encode, fingerprint
-from sls_orcamento_pdd.migration.readers import load_checkpoint, postgres_snapshot, reconcile_source
-from sls_orcamento_pdd.models.consumption import GOLD, PUBLIC_FIELDS, publication
-from sls_orcamento_pdd.models.schemas import DEFINITIONS
-from sls_orcamento_pdd.pipelines.runner import run
+from sls_orcamento_ppd.db.checkpoint import encode, fingerprint
+from sls_orcamento_ppd.migration.readers import load_checkpoint, postgres_snapshot, reconcile_source
+from sls_orcamento_ppd.models.consumption import GOLD, PUBLIC_FIELDS, publication
+from sls_orcamento_ppd.models.schemas import DEFINITIONS
+from sls_orcamento_ppd.pipelines.runner import run
 
 _migration_cloud = pytest.fixture(name="migration_cloud")(cloud.__wrapped__)
 

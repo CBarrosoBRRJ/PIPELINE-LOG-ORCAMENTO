@@ -3,8 +3,8 @@ import copy
 import pytest
 from conftest import at
 
-from sls_orcamento_pdd.models.contracts import prepare_payload, validate_table
-from sls_orcamento_pdd.services.transform import transform
+from sls_orcamento_ppd.models.contracts import prepare_payload, validate_table
+from sls_orcamento_ppd.services.transform import transform
 
 
 def test_normalization_preserves_bronze_and_unknown_sla(settings, sample):
