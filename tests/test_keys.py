@@ -1,4 +1,4 @@
-from sls_orcamento_pdd.models.keys import surrogate_key, with_surrogates
+from sls_orcamento_ppd.models.keys import surrogate_key, with_surrogates
 
 
 def test_key_stable_across_drivers_and_source_id_preserved():

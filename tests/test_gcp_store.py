@@ -10,13 +10,13 @@ from conftest import FakeMonday, at, raw_event, raw_item
 from google.api_core.exceptions import NotFound, PreconditionFailed
 from google.cloud import bigquery
 
-from sls_orcamento_pdd.db.bq import BigQueryStore, public_schema
-from sls_orcamento_pdd.db.checkpoint import fingerprint
-from sls_orcamento_pdd.db.gcs import ObjectStore
-from sls_orcamento_pdd.models.bq_consumption import digest, project
-from sls_orcamento_pdd.models.consumption import GOLD
-from sls_orcamento_pdd.models.schemas import DEFINITIONS
-from sls_orcamento_pdd.pipelines.runner import run
+from sls_orcamento_ppd.db.bq import BigQueryStore, public_schema
+from sls_orcamento_ppd.db.checkpoint import fingerprint
+from sls_orcamento_ppd.db.gcs import ObjectStore
+from sls_orcamento_ppd.models.bq_consumption import digest, project
+from sls_orcamento_ppd.models.consumption import GOLD
+from sls_orcamento_ppd.models.schemas import DEFINITIONS
+from sls_orcamento_ppd.pipelines.runner import run
 
 
 class MemoryBlob:
@@ -408,7 +408,7 @@ def test_daily_reservation_keeps_publication_artifacts_for_backup(cloud, board):
 
 
 def test_health_tracks_cloud_publication_and_failed_daily(cloud, board):
-    from sls_orcamento_pdd.services.health import check_health
+    from sls_orcamento_ppd.services.health import check_health
 
     cfg, _, new = cloud
     run(cfg, "backfill", client=FakeMonday(board), store=new(), at=at())
@@ -431,8 +431,8 @@ def test_health_tracks_cloud_publication_and_failed_daily(cloud, board):
 def test_cloud_review_exports_private_artifact_and_replay_preserves_bronze(
     cloud, board, tmp_path, monkeypatch
 ):
-    from sls_orcamento_pdd.pipelines import runner
-    from sls_orcamento_pdd.services.review import export_review, import_review
+    from sls_orcamento_ppd.pipelines import runner
+    from sls_orcamento_ppd.services.review import export_review, import_review
 
     cfg, bq, new = cloud
     store = new()

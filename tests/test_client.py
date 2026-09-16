@@ -3,7 +3,7 @@ import json
 import pytest
 import requests
 
-from sls_orcamento_pdd.clients.monday_client import MondayClient, MondayError
+from sls_orcamento_ppd.clients.monday_client import MondayClient, MondayError
 
 
 class Session:

@@ -1,6 +1,6 @@
 import pytest
 
-from sls_orcamento_pdd.config import load_settings
+from sls_orcamento_ppd.config import load_settings
 
 
 def test_duplicate_configuration_fails_without_secret(tmp_path):
@@ -42,7 +42,7 @@ def test_remote_pg_configuration(tmp_path, monkeypatch):
 
 
 def test_environment_only_container_configuration(tmp_path, monkeypatch):
-    from sls_orcamento_pdd.config import load_settings
+    from sls_orcamento_ppd.config import load_settings
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PG_HOST", "database.internal")
@@ -55,7 +55,7 @@ def test_environment_only_container_configuration(tmp_path, monkeypatch):
 
 
 def test_gcp_only_default_and_no_implicit_postgres_fallback():
-    from sls_orcamento_pdd.config import Settings
+    from sls_orcamento_ppd.config import Settings
 
     assert Settings(_env_file=None).target_db == "bigquery"
     with pytest.raises(ValueError):

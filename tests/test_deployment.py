@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from sls_orcamento_pdd.config import Settings
+from sls_orcamento_ppd.config import Settings
 
 ROOT = Path(__file__).resolve().parents[1]
 

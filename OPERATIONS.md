@@ -4,6 +4,8 @@ Procedimento de implantação: [DEPLOY_GCP.md](docs/DEPLOY_GCP.md). Arquitetura 
 
 ## Rotina GCP
 
+O nome da área/projeto é PPD. O pacote Python passou a `sls_orcamento_ppd`; em instalações locais existentes, reinstale com `python -m pip install -e ".[dev]"` para atualizar o comando `sla-pipeline`. A imagem do Cloud Run precisa ser reconstruída para incorporar a alteração. Namespaces históricos de identidade permanecem iguais para preservar IDs/SKs e checkpoints.
+
 Scheduler às 06h São Paulo invoca Cloud Run Job com daily, uma tarefa/retries zero. O Job usa ADC/service account, segredo Monday no Secret Manager e estado GCS. Não existe executor permanente/loop no aplicativo. `health`, `validate`, `validate-gold`, `quality-profile`, `export-review`, `import-review` e `replay` usam o estado remoto; runtime local não é durável nem necessário.
 
 `sla-pipeline calendar --year 2026` imprime calendário BR PUBLIC e extras. expediente 10h–13h/14h–19h; seg-sex. Pendências e calendário ficam em generations/UUID/ junto da carga, e export-review salva relatório privado com URI. Para revisão, extrair a lista meta_entity_mapping, editar somente revisões aprovadas e importar JSON local ou gs://bucket/caminho; depois replay.

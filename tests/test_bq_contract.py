@@ -1,5 +1,5 @@
-from sls_orcamento_pdd.db.bq import public_schema, table_ddl
-from sls_orcamento_pdd.models.bq_consumption import FIELDS
+from sls_orcamento_ppd.db.bq import public_schema, table_ddl
+from sls_orcamento_ppd.models.bq_consumption import FIELDS
 
 
 def test_only_public_gold_ddl_with_nullable_unknown_times():
