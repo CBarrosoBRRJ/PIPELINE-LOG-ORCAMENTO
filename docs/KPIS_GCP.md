@@ -17,3 +17,7 @@ O Python já resolve joins, nomes, sequenciamento, exclusões, qualidade, retorn
 Não existe meta ou classificação atrasado/no prazo. Tempos úteis medem exposição ao expediente acordado, não horas de esforço da pessoa. Feriados locais não cadastrados não são descontados. Para comparações por período, documentar se filtro usa data de entrada ou saída; filtrar entrada corta passagens antigas ainda abertas. Tabela não é fotografia histórica da fila de todos os dias.
 
 No Power BI use conector Google BigQuery e selecione somente sla_orcamento, com credencial de leitura corporativa. Renomeie a consulta para sla_orcamento. Não recriar joins de dimensões PostgreSQL. Medidas opcionais estão em powerbi/power_bi_gold.dax; sua execução em Power BI ainda precisa ser validada no ambiente do consumidor.
+
+## Precisão das horas publicadas
+
+Todos os campos numéricos de horas em `sla_orcamento` são arredondados em Python a no máximo três casas decimais na projeção final (round, empate para o par). Cálculos, evidências e estado interno preservam precisão completa; desconhecidos continuam NULL. Origem, grão, chaves e tipos FLOAT64 permanecem iguais. BI recebe valores já arredondados; somas podem apresentar pequenas diferenças de arredondamento. A validação ocorre antes e depois da projeção; falha bloqueia a publicação.

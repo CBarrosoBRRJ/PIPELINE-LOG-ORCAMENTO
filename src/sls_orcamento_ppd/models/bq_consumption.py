@@ -53,6 +53,13 @@ def project(data, settings):
             expediente=POLICY,
             versao_calendario=calendar.version,
         )
+    # Validate full precision before rounding the public copy only.
+    validate_public(result[GOLD], settings.monday_board_id)
+    hour_fields = [field.split(":")[0] for field in FIELDS.split() if field.endswith(":num")]
+    for row in result[GOLD]:
+        for field in hour_fields:
+            if row[field] is not None:
+                row[field] = round(row[field], 3)
     validate_public(result[GOLD], settings.monday_board_id)
     result["calendar"] = calendar.snapshot()
     return result

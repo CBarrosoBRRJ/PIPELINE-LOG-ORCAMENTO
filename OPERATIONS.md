@@ -23,3 +23,7 @@ Processo morto pode deixar writer.lock. Primeiro pause Scheduler, confira/cancel
 Se um objeto foi removido, restaure sua versão exata pelo Cloud Storage. Se control.json sumiu e sla_orcamento existe, initialize bloqueia. Com todos os escritores parados, restaure o control.json mais recente cujo active/pending corresponda à tabela atual, execute recover e validate-gold. Não restaurar cegamente ponteiro antigo sobre tabela mais nova: fingerprint bloqueará. Para rollback integral, prefira restaurar estado e tabela em ambiente isolado a partir da mesma geração, reconciliar e só então realizar cutover aprovado. Não limpar bucket ou truncar tabela manualmente.
 
 Logs estruturados ficam em Cloud Logging e relatórios JSON em reports/. Alertar falha de Job e ausência de fechamento; Scheduler com resposta 2xx não comprova sucesso da extração. Publicação só fica pronta quando BQ job e reconciliação concluem. Credenciais, payloads e .env nunca devem ir para logs.
+
+## Atualização de precisão
+
+Após publicar a imagem com horas arredondadas a três casas, executar `replay` e `validate-gold` para atualizar a tabela a partir do histórico privado, sem nova coleta Monday. Preservar estado e conferir pending/execuções antes de publicar. Não executar init-db nem backfill para esta alteração.

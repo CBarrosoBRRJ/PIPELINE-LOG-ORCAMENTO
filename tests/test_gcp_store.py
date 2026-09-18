@@ -451,3 +451,40 @@ def test_cloud_review_exports_private_artifact_and_replay_preserves_bronze(
     runner.replay(cfg)
     assert bq.tables[store.table_id].rows == []
     assert store.read("bronze_monday_activity_log_raw") == before
+
+
+def test_public_hours_round_without_changing_evidence(cloud, board):
+    cfg, bq, new = cloud
+
+    class FractionalMonday(FakeMonday):
+        def activity_page(self, page, start, end):
+            if page != 1:
+                return []
+            rows = []
+            for event_id, seconds, before, after in (
+                ("1", 0, 0, 7),
+                ("2", 1871.234, 7, 0),
+            ):
+                event = raw_event(event_id, before=before, after=after)
+                instant = at(13, 5) + timedelta(seconds=seconds)
+                event["created_at"] = str(int(instant.timestamp() * 10_000_000))
+                rows.append(event)
+            return rows
+
+    store = new()
+    run(cfg, "backfill", client=FractionalMonday(board), store=store, at=at(9, 7))
+    data = store.read_many(DEFINITIONS)
+    before = copy.deepcopy(data)
+    rows = project(data, cfg)[GOLD]
+    assert data == before
+    passage = next(r for r in rows if r["entrada_status_utc"] == at(13, 5))
+    assert passage["duracao_horas"] == 0.520
+    assert passage["duracao_horas_uteis"] == 0.520
+    assert any(r["duracao_horas"] is None for r in rows)
+    internal = next(r for r in data[GOLD] if r["entrada_status_utc"] == at(13, 5))
+    assert internal["duracao_horas"] == pytest.approx(1871.234 / 3600)
+    for row in rows:
+        for field, value in row.items():
+            if "horas" in field and value is not None:
+                assert value == round(value, 3)
+    assert digest(rows) == digest(bq.tables[store.table_id].rows)

@@ -78,3 +78,7 @@ Os 33 campos abaixo permanecem no consumo e seis campos úteis são acrescentado
 | `versao_regras` | text | Não | Versão semântica e assinatura da configuração/catálogo. |
 | `item_sk` | text | Não | Chave substituta estável do projeto. |
 Tipos lógicos: id=int64, int=inteiro, text=texto, num=número finito não negativo, bool=booleano, localtime=data/hora local sem fuso, time=instante com fuso. O artefato de pendências contém informações operacionais para revisão e acesso restrito. Projetos excluídos não entram em sla_orcamento.
+
+## Precisão das horas publicadas
+
+Todos os campos numéricos de horas em `sla_orcamento` são arredondados em Python a no máximo três casas decimais na projeção final (round, empate para o par). Cálculos, evidências e estado interno preservam precisão completa; desconhecidos continuam NULL. Origem, grão, chaves e tipos FLOAT64 permanecem iguais. BI recebe valores já arredondados; somas podem apresentar pequenas diferenças de arredondamento. A validação ocorre antes e depois da projeção; falha bloqueia a publicação.

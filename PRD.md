@@ -36,3 +36,7 @@ Uma tentativa automática diária às **06:00 America/Sao_Paulo**, via Cloud Sch
 - [Evidências de validação GCP](docs/VALIDACAO_GCP.md).
 
 Código GCP implementado; implantação corporativa ainda não executada. IDs/SKs preservados, pendências fora do BQ, horas úteis adicionadas ao contrato. Consulte [DEPLOY_GCP.md](docs/DEPLOY_GCP.md). Decisão posterior confirmada em 16/09/2026: iniciar uma base nova via `init-db` e `backfill`, sem importar PostgreSQL/checkpoint anteriores, recuperando somente o histórico disponível na fonte. Isso não autoriza excluir dados legados nem garante histórico completo do Monday. Agenda das 06h confirmada pelo usuário. Nenhum recurso GCP foi provisionado nesta alteração.
+
+## Precisão das horas publicadas
+
+Todos os campos numéricos de horas em `sla_orcamento` são arredondados em Python a no máximo três casas decimais na projeção final (round, empate para o par). Cálculos, evidências e estado interno preservam precisão completa; desconhecidos continuam NULL. Origem, grão, chaves e tipos FLOAT64 permanecem iguais. BI recebe valores já arredondados; somas podem apresentar pequenas diferenças de arredondamento. A validação ocorre antes e depois da projeção; falha bloqueia a publicação.
