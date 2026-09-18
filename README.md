@@ -2,6 +2,11 @@
 
 Monday → joins, regras e horas úteis em Python → **BigQuery `viu_agenciamento.sla_orcamento`**.
 
+**Continuidade (18/09/2026):** para atualizar a cópia do VS Code a partir da `main`
+e preparar a evolução para múltiplas tabelas, siga
+[Continuar no VS Code](docs/CONTINUAR_NO_VSCODE.md). Essa evolução ainda não foi
+implementada; o contrato abaixo descreve a versão atual de uma tabela.
+
 - Uma única tabela BigQuery, reutilizada em todas as cargas; uma linha por passagem do projeto em um status.
 - `duracao_horas_uteis`: segunda a sexta, 10h–13h e 14h–19h, fuso São Paulo, feriados nacionais automáticos.
 - Horas corridas preservadas em `duracao_horas`; histórico desconhecido continua NULL.
